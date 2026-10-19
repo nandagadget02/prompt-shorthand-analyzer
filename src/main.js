@@ -1409,19 +1409,25 @@ class App {
   handleSetMainPromptFromVariation(promptText) {
     if (!promptText) return;
     this.currentPrompt = promptText;
+    if (this.analysisResult) {
+      this.analysisResult.optimalPrompt = promptText;
+      this.analysisResult.generatedPrompt = promptText;
+    }
     this.activeTab = 'analyzer';
+    this.activeMode = 'ANALISA_PROMPT';
     this.render();
-    this.showToast('Variasi berhasil ditetapkan sebagai Prompt Utama di tab Analyzer!');
+    this.showToast('Variasi berhasil ditetapkan sebagai Prompt Utama di tab Analisa Prompt!');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   handleOptimizeVariation(promptText) {
     if (!promptText) return;
-    this.currentPrompt = promptText;
+    this.promptOptimizerState.sourceType = 'MANUAL_PROMPT';
+    this.promptOptimizerState.manualPrompt = promptText;
     this.activeTab = 'analyzer';
+    this.activeMode = 'PROMPT_OPTIMIZER';
     this.render();
-    this.runAnalysis(promptText);
-    this.showToast('Prompt variasi dikirim ke Analyzer untuk dianalisis!');
+    this.showToast('Prompt variasi dikirim ke Prompt Optimizer!');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1644,33 +1650,31 @@ class App {
         onSetAsMainPrompt: (prompt) => this.handleSetAsMainPrompt(prompt),
         onOptimizeAgain: (prompt) => this.handleOptimizeAgain(prompt),
         optimalPromptForOptimizer: this.analysisResult?.optimalPrompt || this.analysisResult?.generatedPrompt || this.currentPrompt || '',
-        variationListForOptimizer: this.promptVariationsState?.generatedVariations || []
+        variationListForOptimizer: this.promptVariationsState?.generatedVariations || [],
+        promptVariationsState: this.promptVariationsState,
+        previousAnalysisForVariations: this.analysisResult,
+        onVariationSourceTypeChange: (type) => this.handleVariationSourceTypeChange(type),
+        onVariationCustomPromptChange: (val) => this.handleVariationCustomPromptChange(val),
+        onVariationImageSelected: (file) => this.handleVariationImageSelected(file),
+        onVariationImageRemoved: () => this.handleVariationImageRemoved(),
+        onVariationCountChange: (count) => this.handleVariationCountChange(count),
+        onToggleVariationApproach: (id, checked) => this.handleToggleVariationApproach(id, checked),
+        onToggleVariationLock: (key, checked) => this.handleToggleVariationLock(key, checked),
+        onCustomVariationLockChange: (val) => this.handleCustomVariationLockChange(val),
+        onVariationAspectRatioChange: (ratio) => this.handleVariationAspectRatioChange(ratio),
+        onVariationCustomAspectRatioChange: (val) => this.handleVariationCustomAspectRatioChange(val),
+        onGenerateVariations: () => this.handleGenerateVariations(),
+        onCopyVariationPrompt: (text) => this.handleCopyPrompt(text, '✅ Prompt variasi disalin ke clipboard!'),
+        onSetMainPromptFromVariation: (text) => this.handleSetMainPromptFromVariation(text),
+        onOptimizeVariation: (text) => this.handleOptimizeVariation(text),
+        onMakeBaseForNextVariation: (text) => this.handleMakeBaseForNextVariation(text)
       });
     } else if (this.activeTab === 'prompt-variations') {
-      pageContent = renderPromptVariationPage({
-        state: this.promptVariationsState,
-        previousAnalysis: this.analysisResult,
-        onSourceTypeChange: (type) => this.handleVariationSourceTypeChange(type),
-        onCustomPromptChange: (val) => this.handleVariationCustomPromptChange(val),
-        onImageSelected: (file) => this.handleVariationImageSelected(file),
-        onImageRemoved: () => this.handleVariationImageRemoved(),
-        onVariationCountChange: (count) => this.handleVariationCountChange(count),
-        onToggleApproach: (id, checked) => this.handleToggleVariationApproach(id, checked),
-        onToggleLock: (key, checked) => this.handleToggleVariationLock(key, checked),
-        onCustomLockChange: (val) => this.handleCustomVariationLockChange(val),
-        onAspectRatioChange: (ratio) => this.handleVariationAspectRatioChange(ratio),
-        onCustomAspectRatioChange: (val) => this.handleVariationCustomAspectRatioChange(val),
-        onGenerate: () => this.handleGenerateVariations(),
-        onCopyPrompt: (text) => this.handleCopyPrompt(text, '✅ Prompt variasi disalin ke clipboard!'),
-        onSetMainPrompt: (text) => this.handleSetMainPromptFromVariation(text),
-        onOptimizePrompt: (text) => this.handleOptimizeVariation(text),
-        onMakeBaseForNextVariation: (text) => this.handleMakeBaseForNextVariation(text),
-        onNavigateTab: (tab) => {
-          this.activeTab = tab;
-          this.render();
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      });
+      // Backward compatibility fallback: alihkan langsung ke tab analyzer dengan mode PROMPT_VARIATIONS
+      this.activeTab = 'analyzer';
+      this.activeMode = 'PROMPT_VARIATIONS';
+      this.render();
+      return;
     } else if (this.activeTab === 'json-test') {
       pageContent = renderJsonTestPage({
         analysisResult: this.analysisResult,

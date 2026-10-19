@@ -18,6 +18,7 @@ import {
 } from '../data/twoWorldsData.js';
 import { renderColourGradingPanel } from './ColourGradingPanel.js';
 import { renderPromptOptimizerPanel } from './PromptOptimizerPanel.js';
+import { renderPromptVariationPage } from './PromptVariationPage.js';
 import { DEFAULT_COLOUR_GRADING_CONFIG } from '../data/colourGradingData.js';
 import { analyzeImageColorTelemetry } from '../lib/colourGradingEngine.js';
 
@@ -56,7 +57,24 @@ export function renderPromptInput({
   onSetAsMainPrompt,
   onOptimizeAgain,
   optimalPromptForOptimizer = '',
-  variationListForOptimizer = []
+  variationListForOptimizer = [],
+  promptVariationsState = {},
+  previousAnalysisForVariations = null,
+  onVariationSourceTypeChange,
+  onVariationCustomPromptChange,
+  onVariationImageSelected,
+  onVariationImageRemoved,
+  onVariationCountChange,
+  onToggleVariationApproach,
+  onToggleVariationLock,
+  onCustomVariationLockChange,
+  onVariationAspectRatioChange,
+  onVariationCustomAspectRatioChange,
+  onGenerateVariations,
+  onCopyVariationPrompt,
+  onSetMainPromptFromVariation,
+  onOptimizeVariation,
+  onMakeBaseForNextVariation
 }) {
   const presets = renderPresetTests(onSelectPreset);
   const colourGradingPanelComp = activeMode === 'COLOUR_GRADING'
@@ -84,6 +102,30 @@ export function renderPromptInput({
       })
     : null;
 
+  const promptVariationsComp = activeMode === 'PROMPT_VARIATIONS'
+    ? renderPromptVariationPage({
+        state: promptVariationsState,
+        previousAnalysis: previousAnalysisForVariations,
+        onSourceTypeChange: onVariationSourceTypeChange,
+        onCustomPromptChange: onVariationCustomPromptChange,
+        onImageSelected: onVariationImageSelected,
+        onImageRemoved: onVariationImageRemoved,
+        onVariationCountChange: onVariationCountChange,
+        onToggleApproach: onToggleVariationApproach,
+        onToggleLock: onToggleVariationLock,
+        onCustomLockChange: onCustomVariationLockChange,
+        onAspectRatioChange: onVariationAspectRatioChange,
+        onCustomAspectRatioChange: onVariationCustomAspectRatioChange,
+        onGenerate: onGenerateVariations,
+        onCopyPrompt: onCopyVariationPrompt,
+        onSetMainPrompt: onSetMainPromptFromVariation,
+        onOptimizePrompt: onOptimizeVariation,
+        onMakeBaseForNextVariation: onMakeBaseForNextVariation,
+        onNavigateTab: onModeChange,
+        isEmbedded: true
+      })
+    : null;
+
   const detectedRatio = uploadedImage
     ? (uploadedImage.detectedAspectRatio || (uploadedImage.width && uploadedImage.height ? detectClosestAspectRatio(uploadedImage.width, uploadedImage.height) : '1:1'))
     : null;
@@ -95,6 +137,8 @@ export function renderPromptInput({
     modeTipText = '💡 Gambar dianalisis langsung sebagai SOURCE OF TRUTH untuk sintesis prompt 2 Dunia &amp; rekomendasi shorthand.';
   } else if (activeMode === 'IMAGE_TO_PROMPT') {
     modeTipText = '💡 Gambar dianalisis langsung sebagai SOURCE OF TRUTH untuk menghasilkan deskripsi visual 13 atribut &amp; rekomendasi shorthand.';
+  } else if (activeMode === 'PROMPT_VARIATIONS') {
+    modeTipText = '⭐ Menghasilkan variasi prompt terarah dengan 3 sumber input, pendekatan kreatif, Instruction Lock, dan rasio fleksibel.';
   } else if (activeMode === 'COLOUR_GRADING' && uploadedImage) {
     modeTipText = '💡 Mendiagnosis parameter warna, tone curve, saturasi &amp; merekomendasikan seluruh shorthand colour grading yang relevan tanpa batasan jumlah.';
   } else if (activeMode === 'SHORTHAND_IMPROVE' && uploadedImage) {
@@ -130,7 +174,7 @@ export function renderPromptInput({
           <h2>INPUT &amp; MODE ANALISIS</h2>
         </div>
         <div style="display: flex; gap: 0.4rem;">
-          ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER') ? `
+          ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER' && activeMode !== 'PROMPT_VARIATIONS') ? `
             <button type="button" class="btn btn-outline btn-xs" id="btn-clear-prompt" title="Kosongkan teks">
               Kosongkan
             </button>
@@ -150,6 +194,10 @@ export function renderPromptInput({
         <button type="button" class="mode-tab-btn ${activeMode === 'IMAGE_TO_PROMPT' ? 'active' : ''}" data-mode="IMAGE_TO_PROMPT">
           <span>🔍</span>
           <span>Analisa Gambar → Prompt</span>
+        </button>
+        <button type="button" class="mode-tab-btn ${activeMode === 'PROMPT_VARIATIONS' ? 'active' : ''}" data-mode="PROMPT_VARIATIONS">
+          <span>⭐</span>
+          <span>Ide Variasi Prompt</span>
         </button>
         <button type="button" class="mode-tab-btn ${activeMode === 'BACKGROUND_ANALYSIS' ? 'active' : ''}" data-mode="BACKGROUND_ANALYSIS">
           <span>🏞️</span>
@@ -451,7 +499,7 @@ export function renderPromptInput({
       ` : ''}
 
       <!-- Textarea Input (Hanya untuk Mode 1, Mode 3, dan Colour Grading) -->
-      ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER') ? `
+      ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER' && activeMode !== 'PROMPT_VARIATIONS') ? `
         <div class="form-group" style="margin-bottom: 0.85rem;">
           <label for="prompt-textarea" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem;">
             ${((activeMode === 'SHORTHAND_IMPROVE' || activeMode === 'COLOUR_GRADING') && uploadedImage)
@@ -540,11 +588,14 @@ export function renderPromptInput({
         </div>
       ` : ''}
 
+      <!-- PROMPT VARIATIONS PANEL (V3.8 PATCH) -->
+      ${activeMode === 'PROMPT_VARIATIONS' ? (promptVariationsComp ? promptVariationsComp.html : '') : ''}
+
       <!-- PROMPT OPTIMIZER PANEL (V3.8 PATCH) -->
       ${activeMode === 'PROMPT_OPTIMIZER' ? (promptOptimizerPanelComp ? promptOptimizerPanelComp.html : '') : ''}
 
-      <!-- Actions Bar (Hanya untuk Mode selain PROMPT_OPTIMIZER) -->
-      ${activeMode !== 'PROMPT_OPTIMIZER' ? `
+      <!-- Actions Bar (Hanya untuk Mode selain PROMPT_OPTIMIZER dan PROMPT_VARIATIONS) -->
+      ${(activeMode !== 'PROMPT_OPTIMIZER' && activeMode !== 'PROMPT_VARIATIONS') ? `
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <small style="color: var(--text-muted); font-size: 0.775rem;">
           ${modeTipText}
@@ -561,6 +612,9 @@ export function renderPromptInput({
   return {
     html,
     bindEvents(container) {
+      if (activeMode === 'PROMPT_VARIATIONS' && promptVariationsComp) {
+        promptVariationsComp.bindEvents(container);
+      }
       if (activeMode === 'PROMPT_OPTIMIZER' && promptOptimizerPanelComp) {
         promptOptimizerPanelComp.bindEvents(container);
       }

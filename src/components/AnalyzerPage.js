@@ -72,7 +72,24 @@ export function renderAnalyzerPage({
   onSetAsMainPrompt,
   onOptimizeAgain,
   optimalPromptForOptimizer = '',
-  variationListForOptimizer = []
+  variationListForOptimizer = [],
+  promptVariationsState = {},
+  previousAnalysisForVariations = null,
+  onVariationSourceTypeChange,
+  onVariationCustomPromptChange,
+  onVariationImageSelected,
+  onVariationImageRemoved,
+  onVariationCountChange,
+  onToggleVariationApproach,
+  onToggleVariationLock,
+  onCustomVariationLockChange,
+  onVariationAspectRatioChange,
+  onVariationCustomAspectRatioChange,
+  onGenerateVariations,
+  onCopyVariationPrompt,
+  onSetMainPromptFromVariation,
+  onOptimizeVariation,
+  onMakeBaseForNextVariation
 }) {
   const {
     optimalPrompt = '',
@@ -153,7 +170,24 @@ export function renderAnalyzerPage({
     onSetAsMainPrompt,
     onOptimizeAgain,
     optimalPromptForOptimizer,
-    variationListForOptimizer
+    variationListForOptimizer,
+    promptVariationsState,
+    previousAnalysisForVariations,
+    onVariationSourceTypeChange,
+    onVariationCustomPromptChange,
+    onVariationImageSelected,
+    onVariationImageRemoved,
+    onVariationCountChange,
+    onToggleVariationApproach,
+    onToggleVariationLock,
+    onCustomVariationLockChange,
+    onVariationAspectRatioChange,
+    onVariationCustomAspectRatioChange,
+    onGenerateVariations,
+    onCopyVariationPrompt,
+    onSetMainPromptFromVariation,
+    onOptimizeVariation,
+    onMakeBaseForNextVariation
   });
 
   const conflictBannerComp = renderConflictBanner(conflicts, onResolveConflict, activeMode);
@@ -193,6 +227,22 @@ export function renderAnalyzerPage({
   );
 
   const exclusionsComp = renderExcludedShorthands(exclusions, activeMode);
+
+  // =========================================================================
+  // CASE PROMPT VARIATIONS (V3.8 PATCH)
+  // =========================================================================
+  if (activeMode === 'PROMPT_VARIATIONS') {
+    return {
+      html: `
+        <div class="analyzer-stream-container">
+          ${promptInputComp.html}
+        </div>
+      `,
+      bindEvents(container) {
+        promptInputComp.bindEvents(container);
+      }
+    };
+  }
 
   // =========================================================================
   // CASE PROMPT OPTIMIZER (V3.8 PATCH)

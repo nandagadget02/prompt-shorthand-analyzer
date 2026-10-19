@@ -4,6 +4,7 @@
  */
 
 import { renderHeader } from '../src/components/Header.js';
+import { renderPromptInput } from '../src/components/PromptInput.js';
 import { renderPromptVariationPage } from '../src/components/PromptVariationPage.js';
 import {
   VARIATION_APPROACHES,
@@ -34,10 +35,24 @@ export function runPromptVariationTests() {
     }
   }
 
-  // 1. UI Navigation Tests
-  const headerMock = renderHeader('prompt-variations', { status: GEMINI_STATUS.UNCONFIGURED });
-  assert(headerMock.html.includes('data-tab="prompt-variations"'), 'UI Header: Tombol navigasi tab prompt-variations tersedia');
-  assert(headerMock.html.includes('Ide Variasi Prompt'), 'UI Header: Label teks "Ide Variasi Prompt" ditampilkan');
+  // 1. UI Navigation Tests (V3.8 Migration to INPUT & MODE ANALISIS)
+  const headerMock = renderHeader('analyzer', { status: GEMINI_STATUS.UNCONFIGURED });
+  assert(!headerMock.html.includes('data-tab="prompt-variations"'), 'UI Header: Tab terpisah prompt-variations telah dihapus dari navigasi header');
+
+  const inputMock = renderPromptInput({
+    activeMode: 'PROMPT_VARIATIONS',
+    promptVariationsState: { sourceType: 'CUSTOM_PROMPT', customPrompt: 'test prompt' }
+  });
+  assert(inputMock.html.includes('data-mode="PROMPT_VARIATIONS"'), 'Mode Tabs: Tab "data-mode=PROMPT_VARIATIONS" tersedia di dalam INPUT & MODE ANALISIS');
+  assert(inputMock.html.includes('Ide Variasi Prompt'), 'Mode Tabs: Label "Ide Variasi Prompt" ditampilkan');
+
+  // Verify tab order: 1. ANALISA_PROMPT, 2. IMAGE_TO_PROMPT, 3. PROMPT_VARIATIONS, 4. BACKGROUND_ANALYSIS
+  const promptIdx = inputMock.html.indexOf('data-mode="ANALISA_PROMPT"');
+  const imgIdx = inputMock.html.indexOf('data-mode="IMAGE_TO_PROMPT"');
+  const varIdx = inputMock.html.indexOf('data-mode="PROMPT_VARIATIONS"');
+  const bgIdx = inputMock.html.indexOf('data-mode="BACKGROUND_ANALYSIS"');
+  assert(promptIdx < imgIdx && imgIdx < varIdx && varIdx < bgIdx, 'Mode Tabs: Urutan tab tepat (Analisa Prompt -> Analisa Gambar -> Ide Variasi Prompt -> Analisa Latar Belakang)');
+  assert(inputMock.html.includes('id="card-source-selection"'), 'Embedded View: Kartu panel Ide Variasi Prompt dirender di dalam INPUT & MODE ANALISIS');
 
   // 2. UI Page Component Structure Tests
   const pageMock = renderPromptVariationPage({
