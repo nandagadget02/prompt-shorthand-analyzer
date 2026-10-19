@@ -29,7 +29,7 @@ import {
   formatPlacementProfileText,
   formatFullBackgroundReportText
 } from '../lib/backgroundAnalyzer.js';
-import { generateVariationsHeuristic, enforceInstructionLocks } from '../lib/promptVariationEngine.js';
+import { generateVariationsHeuristic, enforceInstructionLocks, applyAspectRatioToPrompt } from '../lib/promptVariationEngine.js';
 
 export const GEMINI_STATUS = {
   CONNECTED: 'CONNECTED',     // 🟢 Tersambung
@@ -3209,7 +3209,11 @@ Format respons HANYA berupa JSON valid:
     count = 5,
     selectedApproaches = ['composition_framing', 'environment_background', 'lighting_mood', 'visual_style'],
     lockedConfig = {},
-    installedShorthands = []
+    installedShorthands = [],
+    aspectRatio = 'auto',
+    customAspectRatio = '',
+    variationImage = null,
+    previousAnalysis = null
   } = {}) {
     const key = StorageService.getApiKey();
     const isOnline = Boolean(key && this.status !== GEMINI_STATUS.FAILED);
@@ -3220,7 +3224,12 @@ Format respons HANYA berupa JSON valid:
       installedShorthands,
       count,
       selectedApproaches,
-      lockedConfig
+      lockedConfig,
+      aspectRatio,
+      customAspectRatio,
+      sourceType: source,
+      variationImage,
+      previousAnalysis
     });
 
     if (!isOnline) {
@@ -3260,6 +3269,10 @@ Format respons HANYA berupa JSON valid:
         ? 'POSE TERKUNCI: Wajib pertahankan pose dan proporsi tubuh asli secara persis, sertakan token /poselock.'
         : 'POSE TIDAK DIKUNCI: Pengguna mengizinkan variasi pose. Anda WAJIB memvariasikan pose dan posisi fisik subjek di setiap variasi (misal: sitting, standing confident, walking mid-stride, casual leaning, turned profile). JANGAN menyertakan /poselock atau /bodyshape!';
 
+      const ratioRuleStr = heuristicResult.targetAspectRatio
+        ? `ATURAN RASIO ASPEK TARGET: Wajib sertakan parameter --ar ${heuristicResult.targetAspectRatio} di akhir setiap variasi prompt (gantikan deklarasi --ar lama jika ada).`
+        : `ATURAN RASIO ASPEK TARGET: Pertahankan rasio komposisi alami tanpa memaksakan parameter --ar paksaan.`;
+
       const promptText = `
 Anda adalah AI Creative Director untuk Prompt Shorthand Analyzer V3.8.
 Tugas Anda: Buat ${count} variasi prompt kreatif yang beragam dengan perbedaan semantik yang nyata.
@@ -3277,6 +3290,9 @@ ${heuristicResult.locks.activeLocks.length > 0 ? heuristicResult.locks.activeLoc
 ATURAN POSE SUBJEK:
 ${poseRuleStr}
 
+ATURAN RASIO ASPEK:
+${ratioRuleStr}
+
 KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN SKEMA:
 {
   "variations": [
@@ -3286,7 +3302,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
       "approachId": "pendekatan_id",
       "approachLabel": "Label Pendekatan",
       "prompt": "Prompt variasi lengkap berbahasa Inggris siap generate",
-      "explanation": "Penjelasan singkat perbedaan visual, pose, dan estetika yang diterapkan"
+      "explanation": "Penjelasan singkat perbedaan visual, pose, estetika, dan rasio yang diterapkan"
     }
   ]
 }
@@ -3324,7 +3340,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
 
       if (parsed && Array.isArray(parsed.variations) && parsed.variations.length > 0) {
         const enriched = parsed.variations.map((v, i) => {
-          const enforcedPrompt = enforceInstructionLocks(v.prompt || '', basePrompt, heuristicResult.locks);
+          const lockedPrompt = enforceInstructionLocks(v.prompt || '', basePrompt, heuristicResult.locks);
+          const enforcedPrompt = applyAspectRatioToPrompt(lockedPrompt, heuristicResult.targetAspectRatio);
           const lockedApplied = heuristicResult.locks.activeLocks.map(l => l.label);
           return {
             id: v.id || `var_${i + 1}`,
@@ -3335,6 +3352,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
             basePrompt: basePrompt,
             shorthands: (enforcedPrompt || '').match(/\/[a-zA-Z0-9_-]+/g) || [],
             lockedElementsApplied: lockedApplied,
+            aspectRatioApplied: heuristicResult.targetAspectRatio ? `--ar ${heuristicResult.targetAspectRatio}` : 'Alami (Ikuti Sumber)',
             explanation: v.explanation || 'Eksplorasi variasi kreatif berbasis AI.'
           };
         });
@@ -3343,9 +3361,10 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
           sourceBasePrompt: basePrompt,
           count: enriched.length,
           locks: heuristicResult.locks,
+          targetAspectRatio: heuristicResult.targetAspectRatio,
           variations: enriched,
           source: 'GEMINI_AI',
-          notice: `Dihasilkan menggunakan ${cleanModel} dengan perlindungan instruksi semantik.`
+          notice: `Dihasilkan menggunakan ${cleanModel} dengan perlindungan instruksi semantik${heuristicResult.targetAspectRatio ? ` dan rasio ${heuristicResult.targetAspectRatio}` : ''}.`
         };
       }
 

@@ -6,7 +6,7 @@
  * Instruction Lock Preservation, serta Aksi Cepat Antartab.
  */
 
-import { VARIATION_APPROACHES } from '../lib/promptVariationEngine.js';
+import { VARIATION_APPROACHES, ASPECT_RATIO_PRESETS, detectSourceAspectRatio } from '../lib/promptVariationEngine.js';
 
 export function renderPromptVariationPage({
   state = {},
@@ -19,6 +19,8 @@ export function renderPromptVariationPage({
   onToggleApproach,
   onToggleLock,
   onCustomLockChange,
+  onAspectRatioChange,
+  onCustomAspectRatioChange,
   onGenerate,
   onCopyPrompt,
   onSetMainPrompt,
@@ -33,10 +35,20 @@ export function renderPromptVariationPage({
     variationCount = 5,
     selectedApproaches = ['composition_framing', 'environment_background', 'lighting_mood', 'visual_style'],
     lockedElements = { face: true, outfit: true, pose: false, color: false, custom: '' },
+    aspectRatio = 'auto',
+    customAspectRatio = '',
+    aspectRatioError = null,
     generatedVariations = [],
     isGenerating = false,
     generationMeta = null
   } = state;
+
+  const detectedSourceRatio = detectSourceAspectRatio({
+    sourceType,
+    variationImage,
+    previousAnalysis,
+    basePrompt: sourceType === 'CUSTOM_PROMPT' ? customPrompt : (previousAnalysis?.optimalPrompt || previousAnalysis?.generatedPrompt || '')
+  });
 
   const hasPreviousAnalysis = Boolean(
     previousAnalysis &&
@@ -299,6 +311,84 @@ export function renderPromptVariationPage({
           </div>
         </section>
 
+        <!-- 4. Rasio Hasil Generate (V3.8 Patch) -->
+        <section class="panel analyzer-card" id="card-aspect-ratio" style="border: 1px solid rgba(56, 189, 248, 0.25);">
+          <div class="card-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 0.6rem;">
+            <div class="card-title">
+              <svg class="icon" viewBox="0 0 24 24" style="color: #38bdf8;"><path fill="currentColor" d="M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/></svg>
+              <h2>4. RASIO HASIL GENERATE</h2>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="badge" id="badge-active-aspect-ratio" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; font-size: 0.725rem; font-weight: 700;">
+                ${aspectRatio === 'auto'
+                  ? (detectedSourceRatio ? `📐 Otomatis (Sumber: ${detectedSourceRatio})` : '📐 Otomatis (Alami)')
+                  : (aspectRatio === 'custom' ? `📐 Custom: ${customAspectRatio || 'Belum diisi'}` : `📐 Target: ${aspectRatio}`)
+                }
+              </span>
+            </div>
+          </div>
+
+          <div style="margin-top: 0.75rem;">
+            <div style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.6rem; line-height: 1.4;">
+              Pilih rasio aspek target kanvas. Rasio yang dipilih akan diterapkan secara konsisten (<code>--ar ...</code>) ke <strong>seluruh variasi prompt</strong> yang dihasilkan.
+            </div>
+
+            <!-- Aspect Ratio Button Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.45rem;" id="aspect-ratio-buttons-grid">
+              ${ASPECT_RATIO_PRESETS.map(preset => {
+                const isSelected = aspectRatio === preset.id;
+                return `
+                  <button 
+                    type="button" 
+                    class="btn-aspect-ratio-preset ${isSelected ? 'active' : ''}" 
+                    data-ratio="${preset.id}"
+                    style="display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 0.5rem 0.65rem; border-radius: 6px; background: ${isSelected ? 'rgba(56, 189, 248, 0.18)' : 'rgba(15, 23, 42, 0.5)'}; border: 1px solid ${isSelected ? '#38bdf8' : 'rgba(255, 255, 255, 0.08)'}; color: #f1f5f9; cursor: pointer; transition: all 0.15s ease;"
+                  >
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                      <span style="font-size: 0.8rem; font-weight: 700; color: ${isSelected ? '#38bdf8' : '#f1f5f9'};">
+                        ${isSelected ? '🔘' : '⚪'} ${preset.label}
+                      </span>
+                    </div>
+                    <span style="font-size: 0.685rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.25;">
+                      ${preset.description}
+                    </span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+
+            <!-- Custom Aspect Ratio Input Container -->
+            ${aspectRatio === 'custom' ? `
+              <div id="panel-custom-aspect-ratio" style="margin-top: 0.75rem; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 0.75rem 0.9rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.4rem;">
+                  <label for="input-custom-aspect-ratio" style="font-size: 0.8rem; font-weight: 700; color: #38bdf8;">
+                    Ketik Rasio Kustom (Format W:H):
+                  </label>
+                  <span style="font-size: 0.725rem; color: var(--text-muted);">Contoh: 5:4, 7:5, 2.35:1, 1.85:1</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <input 
+                    type="text" 
+                    id="input-custom-aspect-ratio" 
+                    value="${customAspectRatio || ''}" 
+                    placeholder="Contoh: 5:4 atau 2.35:1"
+                    style="flex: 1; background: rgba(15, 23, 42, 0.8); border: 1px solid ${aspectRatioError ? '#ef4444' : 'rgba(56, 189, 248, 0.3)'}; border-radius: 6px; padding: 0.5rem 0.75rem; color: #f1f5f9; font-size: 0.85rem; font-family: var(--font-mono);"
+                  />
+                </div>
+                ${aspectRatioError ? `
+                  <div style="color: #f87171; font-size: 0.735rem; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+                    <span>⚠️</span> <span>${aspectRatioError}</span>
+                  </div>
+                ` : `
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">
+                    💡 Pastikan kedua angka bernilai positif lebih besar dari nol.
+                  </div>
+                `}
+              </div>
+            ` : ''}
+          </div>
+        </section>
+
         <!-- Generation Trigger Action Button -->
         <div style="display: flex; justify-content: flex-end; margin-top: 0.25rem;">
           <button 
@@ -333,11 +423,16 @@ export function renderPromptVariationPage({
               ${generatedVariations.map((item, idx) => `
                 <div class="variation-item-card" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.85rem 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.5rem;">
-                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
                       <span style="font-weight: 800; font-size: 0.9rem; color: #38bdf8;">${item.title || `Variasi ${idx + 1}`}</span>
                       <span class="badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #7dd3fc; font-size: 0.68rem;">
                         ${item.approachLabel || 'Kreatif'}
                       </span>
+                      ${item.aspectRatioApplied ? `
+                        <span class="badge badge-aspect-ratio" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); color: #d8b4fe; font-size: 0.68rem; font-weight: 600;">
+                          📐 ${item.aspectRatioApplied}
+                        </span>
+                      ` : ''}
                     </div>
                     <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
                       <button type="button" class="btn btn-outline btn-xs btn-copy-variation" data-idx="${idx}" title="Salin prompt variasi ini">
@@ -496,6 +591,22 @@ export function renderPromptVariationPage({
       if (customLockInput && onCustomLockChange) {
         customLockInput.addEventListener('input', () => {
           onCustomLockChange(customLockInput.value);
+        });
+      }
+
+      // 6.5. Aspect Ratio Presets
+      page.querySelectorAll('.btn-aspect-ratio-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ratio = btn.getAttribute('data-ratio');
+          if (ratio && onAspectRatioChange) onAspectRatioChange(ratio);
+        });
+      });
+
+      // Custom Aspect Ratio Input
+      const customRatioInput = page.querySelector('#input-custom-aspect-ratio');
+      if (customRatioInput && onCustomAspectRatioChange) {
+        customRatioInput.addEventListener('input', () => {
+          onCustomAspectRatioChange(customRatioInput.value);
         });
       }
 

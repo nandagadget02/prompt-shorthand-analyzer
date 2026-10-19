@@ -7,9 +7,14 @@ import { renderHeader } from '../src/components/Header.js';
 import { renderPromptVariationPage } from '../src/components/PromptVariationPage.js';
 import {
   VARIATION_APPROACHES,
+  ASPECT_RATIO_PRESETS,
   extractShorthandTokens,
   detectInstructionLocks,
   enforceInstructionLocks,
+  validateCustomAspectRatio,
+  calculateApproximateRatio,
+  detectSourceAspectRatio,
+  applyAspectRatioToPrompt,
   generateVariationsHeuristic
 } from '../src/lib/promptVariationEngine.js';
 import { GEMINI_STATUS } from '../src/services/geminiService.js';
@@ -262,7 +267,218 @@ export function runPromptVariationTests() {
   const hasOutfitAndColor = varsLocksEnforced.variations.every(v => v.prompt.includes('/outfitlock') && v.prompt.includes('/colorpreserve'));
   assert(hasOutfitAndColor, 'Checkbox SSOT: /outfitlock and /colorpreserve are enforced when checked');
 
+  // =========================================================================
+  // SKENARIO 26 - 42: PENGUJIAN FITUR RASIO HASIL GENERATE (V3.8 PATCH)
+  // =========================================================================
+
+  // 26. UI: Section 4 "4. RASIO HASIL GENERATE" dirender
+  const pageWithRatio = renderPromptVariationPage({
+    state: {
+      aspectRatio: '16:9',
+      customAspectRatio: '',
+      aspectRatioError: null
+    }
+  });
+  assert(pageWithRatio.html.includes('id="card-aspect-ratio"'), 'UI Ratio: Panel "card-aspect-ratio" terpasang');
+  assert(pageWithRatio.html.includes('4. RASIO HASIL GENERATE'), 'UI Ratio: Judul bagian "4. RASIO HASIL GENERATE" dirender');
+
+  // 27. UI: Seluruh 10 Opsi Preset Rasio Tersedia
+  assert(ASPECT_RATIO_PRESETS.length === 10, 'Presets: Tepat terdapat 10 opsi rasio');
+  const allPresetsRendered = ASPECT_RATIO_PRESETS.every(p => pageWithRatio.html.includes(`data-ratio="${p.id}"`));
+  assert(allPresetsRendered, 'UI Ratio: Seluruh 10 tombol preset rasio dirender di template HTML');
+
+  // 28. UI: Input Rasio Kustom Tampil Saat Mode 'custom' Dipilih
+  const pageWithCustomRatio = renderPromptVariationPage({
+    state: {
+      aspectRatio: 'custom',
+      customAspectRatio: '2.35:1',
+      aspectRatioError: null
+    }
+  });
+  assert(pageWithCustomRatio.html.includes('id="input-custom-aspect-ratio"'), 'UI Ratio: Kolom input rasio kustom tampil saat opsi Bebas / Custom aktif');
+  assert(pageWithCustomRatio.html.includes('value="2.35:1"'), 'UI Ratio: Nilai rasio kustom terisi di kolom input');
+
+  // 29. UI: Pesan Validasi Error Tampil Saat Rasio Kustom Tidak Valid
+  const pageWithCustomError = renderPromptVariationPage({
+    state: {
+      aspectRatio: 'custom',
+      customAspectRatio: '-5:4',
+      aspectRatioError: 'Nilai lebar dan tinggi rasio kustom harus berupa angka positif yang lebih besar dari nol.'
+    }
+  });
+  assert(pageWithCustomError.html.includes('Nilai lebar dan tinggi rasio kustom harus berupa angka positif'), 'UI Ratio: Pesan error validasi rasio kustom ditampilkan');
+
+  // 30. Validasi Rasio Kustom: Valid Format Tests
+  const valid1 = validateCustomAspectRatio('5:4');
+  assert(valid1.valid && valid1.normalized === '5:4', 'Validation: Format integer 5:4 dinyatakan valid');
+
+  const valid2 = validateCustomAspectRatio('2.35:1');
+  assert(valid2.valid && valid2.normalized === '2.35:1', 'Validation: Format desimal 2.35:1 dinyatakan valid');
+
+  const valid3 = validateCustomAspectRatio(' 1.85 : 1 ');
+  assert(valid3.valid && valid3.normalized === '1.85:1', 'Validation: Format dengan spasi 1.85 : 1 ternormalisasi dengan benar');
+
+  // 31. Validasi Rasio Kustom: Invalid Format Tests
+  const invalidEmpty = validateCustomAspectRatio('');
+  assert(!invalidEmpty.valid && invalidEmpty.error.includes('tidak boleh kosong'), 'Validation: Input kosong ditolak');
+
+  const invalidNegative = validateCustomAspectRatio('-1:2');
+  assert(!invalidNegative.valid, 'Validation: Angka negatif ditolak');
+
+  const invalidZero = validateCustomAspectRatio('0:0');
+  assert(!invalidZero.valid, 'Validation: Rasio nol ditolak');
+
+  const invalidText = validateCustomAspectRatio('landscape:portrait');
+  assert(!invalidText.valid, 'Validation: Format non-numerik ditolak');
+
+  // 32. Preset Rasio: 1:1, 16:9, 9:16, 21:9 Diterapkan ke Seluruh Variasi
+  const vars169 = generateVariationsHeuristic({
+    basePrompt: 'A futuristic city street',
+    count: 5,
+    aspectRatio: '16:9'
+  });
+  const all169 = vars169.variations.every(v => v.prompt.includes('--ar 16:9'));
+  assert(all169, 'Preset Ratio: Seluruh 5 variasi memuat parameter --ar 16:9');
+  assert(vars169.targetAspectRatio === '16:9', 'Preset Ratio: Metadata targetAspectRatio tercatat 16:9');
+
+  const vars11 = generateVariationsHeuristic({
+    basePrompt: 'Portrait of a traveler',
+    count: 3,
+    aspectRatio: '1:1'
+  });
+  const all11 = vars11.variations.every(v => v.prompt.includes('--ar 1:1'));
+  assert(all11, 'Preset Ratio: Seluruh 3 variasi memuat parameter --ar 1:1');
+
+  const vars916 = generateVariationsHeuristic({
+    basePrompt: 'Fashion photoshoot model',
+    count: 3,
+    aspectRatio: '9:16'
+  });
+  const all916 = vars916.variations.every(v => v.prompt.includes('--ar 9:16'));
+  assert(all916, 'Preset Ratio: Seluruh 3 variasi memuat parameter --ar 9:16');
+
+  const vars219 = generateVariationsHeuristic({
+    basePrompt: 'Cinematic vista horizon',
+    count: 3,
+    aspectRatio: '21:9'
+  });
+  const all219 = vars219.variations.every(v => v.prompt.includes('--ar 21:9'));
+  assert(all219, 'Preset Ratio: Seluruh 3 variasi memuat parameter --ar 21:9');
+
+  // 33. Rasio Kustom Valid Diterapkan ke Seluruh Variasi
+  const varsCustom = generateVariationsHeuristic({
+    basePrompt: 'Artistic landscape',
+    count: 4,
+    aspectRatio: 'custom',
+    customAspectRatio: '5:4'
+  });
+  const allCustom54 = varsCustom.variations.every(v => v.prompt.includes('--ar 5:4'));
+  assert(allCustom54, 'Custom Ratio: Seluruh variasi memuat parameter custom --ar 5:4');
+
+  // 34. Pembersihan Benturan Rasio (Conflict Resolution & Override)
+  // Base prompt sudah memiliki --ar 1:1, pengguna memilih 16:9
+  const varsConflict = generateVariationsHeuristic({
+    basePrompt: 'A warrior standing on cliff --ar 1:1',
+    count: 3,
+    aspectRatio: '16:9'
+  });
+  const noOldRatio = varsConflict.variations.every(v => !v.prompt.includes('--ar 1:1'));
+  const hasNewRatio = varsConflict.variations.every(v => v.prompt.includes('--ar 16:9'));
+  const noDuplicateAr = varsConflict.variations.every(v => (v.prompt.match(/--ar/g) || []).length === 1);
+  assert(noOldRatio, 'Conflict Resolution: Parameter --ar 1:1 lama berhasil dihapus');
+  assert(hasNewRatio, 'Conflict Resolution: Parameter --ar 16:9 baru terpasang');
+  assert(noDuplicateAr, 'Conflict Resolution: Tidak ada duplikasi flag --ar dalam satu prompt');
+
+  // 35. Mode Otomatis dengan Gambar Referensi (NEW_IMAGE)
+  const varsAutoImage = generateVariationsHeuristic({
+    basePrompt: 'Cyberpunk cityscape',
+    count: 3,
+    aspectRatio: 'auto',
+    sourceType: 'NEW_IMAGE',
+    variationImage: { width: 1920, height: 1080 }
+  });
+  assert(varsAutoImage.targetAspectRatio === '16:9', 'Auto Mode Image: Terdeteksi rasio 16:9 dari dimensi gambar 1920x1080');
+  assert(varsAutoImage.variations.every(v => v.prompt.includes('--ar 16:9')), 'Auto Mode Image: Seluruh variasi menerapkan rasio terdeteksi 16:9');
+
+  // 36. Mode Otomatis dengan Gambar Portrait 2:3
+  const varsAutoImagePortrait = generateVariationsHeuristic({
+    basePrompt: 'Studio portrait',
+    count: 3,
+    aspectRatio: 'auto',
+    sourceType: 'NEW_IMAGE',
+    variationImage: { width: 800, height: 1200 }
+  });
+  assert(varsAutoImagePortrait.targetAspectRatio === '2:3', 'Auto Mode Image: Terdeteksi rasio 2:3 dari dimensi gambar 800x1200');
+
+  // 37. Mode Otomatis dengan Teks Memuat --ar di Konteks
+  const varsAutoTextWithAr = generateVariationsHeuristic({
+    basePrompt: 'An astronaut on Mars --ar 3:2',
+    count: 3,
+    aspectRatio: 'auto',
+    sourceType: 'CUSTOM_PROMPT'
+  });
+  assert(varsAutoTextWithAr.targetAspectRatio === '3:2', 'Auto Mode Text: Mempertahankan rasio 3:2 yang ada dalam prompt konteks');
+  assert(varsAutoTextWithAr.variations.every(v => v.prompt.includes('--ar 3:2')), 'Auto Mode Text: Seluruh variasi konsisten menggunakan --ar 3:2');
+
+  // 38. Mode Otomatis Tanpa Gambar & Tanpa Rasio Konteks (Tidak Mengarang Rasio)
+  const varsAutoNatural = generateVariationsHeuristic({
+    basePrompt: 'A simple minimalist flower vase',
+    count: 3,
+    aspectRatio: 'auto',
+    sourceType: 'CUSTOM_PROMPT'
+  });
+  assert(varsAutoNatural.targetAspectRatio === null, 'Auto Mode Fallback: Tidak mengarang rasio jika sumber murni teks tanpa deklarasi rasio');
+  assert(varsAutoNatural.variations.every(v => !v.prompt.includes('--ar')), 'Auto Mode Fallback: Tidak menyematkan flag --ar paksaan');
+
+  // 39. Konsistensi Rasio Antara 3, 5, dan 10 Variasi
+  const varsCount10 = generateVariationsHeuristic({
+    basePrompt: 'Architecture photography',
+    count: 10,
+    aspectRatio: '4:3'
+  });
+  assert(varsCount10.variations.length === 10, 'Consistency: Menghasilkan tepat 10 variasi');
+  const all10HaveRatio = varsCount10.variations.every(v => v.prompt.includes('--ar 4:3'));
+  assert(all10HaveRatio, 'Consistency: Seluruh 10 variasi konsisten memuat --ar 4:3');
+
+  // 40. Kompatibilitas Rasio dengan Instruction Lock & Shorthand
+  const varsLockAndRatio = generateVariationsHeuristic({
+    basePrompt: 'A fashion model /facelock /outfitlock',
+    count: 3,
+    lockedConfig: { face: true, outfit: true },
+    aspectRatio: '9:16'
+  });
+  const retainsLocks = varsLockAndRatio.variations.every(v => v.prompt.includes('/facelock') && v.prompt.includes('/outfitlock'));
+  const retainsRatio = varsLockAndRatio.variations.every(v => v.prompt.includes('--ar 9:16'));
+  assert(retainsLocks, 'Compatibility: Seluruh shorthand lock (/facelock, /outfitlock) dipertahankan utuh');
+  assert(retainsRatio, 'Compatibility: Parameter rasio --ar 9:16 diterapkan harmonis bersama instruction lock');
+
+  // 41. Helper applyAspectRatioToPrompt: Menghapus koma berlebih & deklarasi ganda
+  const cleanedPrompt = applyAspectRatioToPrompt('Subject in rain, --ar 1:1,', '16:9');
+  assert(cleanedPrompt.endsWith('--ar 16:9'), 'Helper: Prompt bersih berakhiran --ar 16:9');
+  assert(!cleanedPrompt.includes('--ar 1:1'), 'Helper: Flag lama terhapus sempurna');
+
+  // 42. UI Result Card Badge: Memuat tag aspectRatioApplied
+  const pageWithRatioResults = renderPromptVariationPage({
+    state: {
+      generatedVariations: [
+        {
+          id: 'var_1',
+          title: 'Variasi 1: Golden Hour',
+          approachLabel: 'Pencahayaan',
+          prompt: 'A girl in garden, warm golden hour, --ar 16:9',
+          aspectRatioApplied: '--ar 16:9',
+          shorthands: [],
+          lockedElementsApplied: [],
+          explanation: 'Eksplorasi pencahayaan hangat sunset.'
+        }
+      ]
+    }
+  });
+  assert(pageWithRatioResults.html.includes('badge-aspect-ratio'), 'UI Results: Badge rasio dirender pada kartu hasil variasi');
+  assert(pageWithRatioResults.html.includes('--ar 16:9'), 'UI Results: Teks rasio --ar 16:9 ditampilkan pada kartu');
+
   console.log(`\nHASIL TAB IDE VARIASI TESTS: ${passed} PASSED, ${failed} FAILED\n`);
   return { passed, failed };
 }
+
 

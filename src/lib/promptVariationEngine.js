@@ -400,18 +400,188 @@ export function enforceInstructionLocks(variedPrompt = '', originalPrompt = '', 
 }
 
 /**
+ * 10 Pilihan Rasio Aspek V3.8
+ */
+export const ASPECT_RATIO_PRESETS = [
+  { id: 'auto', label: 'Otomatis (Ikuti Sumber)', shortLabel: 'Otomatis', description: 'Gunakan rasio gambar referensi jika tersedia atau konteks prompt' },
+  { id: '1:1', label: '1:1 — Persegi', shortLabel: '1:1', description: 'Square framing (1024x1024), ideal untuk avatar dan posting grid' },
+  { id: '3:2', label: '3:2 — Landscape Foto', shortLabel: '3:2', description: 'Format standar fotografi kamera DSLR/mirrorless horizontal' },
+  { id: '2:3', label: '2:3 — Portrait Foto', shortLabel: '2:3', description: 'Format standar fotografi potret vertikal' },
+  { id: '4:3', label: '4:3 — Landscape Klasik', shortLabel: '4:3', description: 'Rasio klasik display dan cetak fotografi landscape' },
+  { id: '3:4', label: '3:4 — Portrait Klasik', shortLabel: '3:4', description: 'Rasio klasik majalah dan fotografi potret' },
+  { id: '16:9', label: '16:9 — Widescreen', shortLabel: '16:9', description: 'Standar layar video, desktop, dan sinematik panorama' },
+  { id: '9:16', label: '9:16 — Vertikal / Mobile', shortLabel: '9:16', description: 'Format vertikal smartphone penuh (Story, Reels, TikTok)' },
+  { id: '21:9', label: '21:9 — Ultrawide', shortLabel: '21:9', description: 'Sinematik anamorphic ultrawide yang sangat dramatis' },
+  { id: 'custom', label: 'Bebas / Custom', shortLabel: 'Custom', description: 'Masukkan rasio numerik bebas kustom (contoh: 5:4, 2.35:1)' }
+];
+
+/**
+ * Validasi string rasio kustom
+ * Format yang valid: W:H dengan W dan H angka positif (> 0), dapat berupa integer maupun desimal (misal 5:4, 2.35:1).
+ */
+export function validateCustomAspectRatio(ratioStr) {
+  if (!ratioStr || typeof ratioStr !== 'string') {
+    return { valid: false, error: 'Rasio kustom tidak boleh kosong. Masukkan format angka W:H (contoh: 5:4 atau 2.35:1).' };
+  }
+  const trimmed = ratioStr.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'Rasio kustom tidak boleh kosong. Masukkan format angka W:H (contoh: 5:4 atau 2.35:1).' };
+  }
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+  if (!match) {
+    return { valid: false, error: 'Format rasio kustom tidak valid. Harap gunakan format angka positif W:H (contoh: 5:4 atau 2.35:1).' };
+  }
+  const w = parseFloat(match[1]);
+  const h = parseFloat(match[2]);
+  if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) {
+    return { valid: false, error: 'Nilai lebar dan tinggi rasio kustom harus berupa angka positif yang lebih besar dari nol.' };
+  }
+  return { valid: true, normalized: `${match[1]}:${match[2]}` };
+}
+
+/**
+ * Hitung rasio terdekat berdasarkan dimensi piksel (width x height)
+ */
+export function calculateApproximateRatio(width, height) {
+  const w = parseInt(width, 10);
+  const h = parseInt(height, 10);
+  if (!w || !h || w <= 0 || h <= 0) return null;
+
+  const dec = w / h;
+  const standards = [
+    { ratio: '1:1', val: 1.0 },
+    { ratio: '16:9', val: 16 / 9 },
+    { ratio: '9:16', val: 9 / 16 },
+    { ratio: '3:2', val: 3 / 2 },
+    { ratio: '2:3', val: 2 / 3 },
+    { ratio: '4:3', val: 4 / 3 },
+    { ratio: '3:4', val: 3 / 4 },
+    { ratio: '21:9', val: 21 / 9 }
+  ];
+
+  for (const s of standards) {
+    if (Math.abs(dec - s.val) <= 0.045) {
+      return s.ratio;
+    }
+  }
+
+  // Jika tidak cocok dengan standar di atas, sederhanakan rasio dengan GCD atau 2 desimal
+  const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
+  const divisor = gcd(w, h);
+  if (divisor > 1 && (w / divisor) <= 50 && (h / divisor) <= 50) {
+    return `${w / divisor}:${h / divisor}`;
+  }
+
+  return `${(Math.round(dec * 100) / 100)}:1`;
+}
+
+/**
+ * Deteksi rasio dari konteks sumber (gambar referensi atau prompt teks)
+ */
+export function detectSourceAspectRatio({ sourceType, variationImage, previousAnalysis, basePrompt = '' } = {}) {
+  // 1. Jika sumber adalah gambar baru yang diunggah
+  if (sourceType === 'NEW_IMAGE' && variationImage) {
+    if (variationImage.width && variationImage.height) {
+      const approx = calculateApproximateRatio(variationImage.width, variationImage.height);
+      if (approx) return approx;
+    }
+    if (variationImage.aspectRatio && variationImage.aspectRatio !== 'auto') {
+      return variationImage.aspectRatio;
+    }
+  }
+
+  // 2. Jika sumber adalah analisis sebelumnya dengan gambar
+  if (sourceType === 'PREVIOUS_ANALYSIS' && previousAnalysis) {
+    if (previousAnalysis.visionData?.aspectRatio && previousAnalysis.visionData.aspectRatio !== 'auto') {
+      return previousAnalysis.visionData.aspectRatio;
+    }
+    if (previousAnalysis.targetAspectRatio && previousAnalysis.targetAspectRatio !== 'auto') {
+      return previousAnalysis.targetAspectRatio;
+    }
+  }
+
+  // 3. Deteksi dari prompt konteks (mencari flag --ar)
+  if (basePrompt && typeof basePrompt === 'string') {
+    const match = basePrompt.match(/--ar\s+([0-9]+(?:\.[0-9]+)?\s*:\s*[0-9]+(?:\.[0-9]+)?)/i);
+    if (match) {
+      const cleanMatch = match[1].replace(/\s+/g, '');
+      const val = validateCustomAspectRatio(cleanMatch);
+      if (val.valid) return val.normalized;
+    }
+  }
+
+  // Jika tidak dapat diketahui dari gambar maupun konteks prompt, jangan mengarang rasio
+  return null;
+}
+
+/**
+ * Tentukan rasio target akhir yang efektif
+ */
+export function resolveTargetAspectRatio({
+  aspectRatio = 'auto',
+  customAspectRatio = '',
+  sourceType = 'PREVIOUS_ANALYSIS',
+  variationImage = null,
+  previousAnalysis = null,
+  basePrompt = ''
+} = {}) {
+  if (aspectRatio === 'custom') {
+    const customVal = validateCustomAspectRatio(customAspectRatio);
+    return customVal.valid ? customVal.normalized : null;
+  }
+
+  if (aspectRatio && aspectRatio !== 'auto' && aspectRatio !== 'Otomatis') {
+    return aspectRatio;
+  }
+
+  // Mode Otomatis (Ikuti Sumber)
+  return detectSourceAspectRatio({ sourceType, variationImage, previousAnalysis, basePrompt });
+}
+
+/**
+ * Terapkan rasio target ke prompt:
+ * - Menghapus parameter --ar lama yang berbenturan
+ * - Menyematkan parameter --ar baru secara rapi di akhir prompt jika targetRatio ada
+ * - Menjaga shorthand dan parameter teknis lainnya tetap utuh
+ */
+export function applyAspectRatioToPrompt(promptText = '', targetRatio = null) {
+  if (!promptText || typeof promptText !== 'string') return '';
+
+  let cleaned = promptText.trim();
+
+  // Hapus semua deklarasi --ar yang ada untuk mencegah benturan ganda
+  cleaned = cleaned.replace(/\s*--ar\s+[0-9]+(?:\.[0-9]+)?\s*:\s*[0-9]+(?:\.[0-9]+)?/gi, '').trim();
+
+  // Bersihkan koma di akhir jika ada
+  cleaned = cleaned.replace(/,\s*$/, '').trim();
+
+  // Jika ada targetRatio yang sah, sematkan di akhir
+  if (targetRatio && typeof targetRatio === 'string' && targetRatio.trim()) {
+    cleaned = `${cleaned} --ar ${targetRatio.trim()}`;
+  }
+
+  return cleaned;
+}
+
+/**
  * Menghasilkan kumpulan ide variasi secara deterministik (Heuristic Engine)
  * - Menerapkan filter pendekatan kreatif strictly berdasarkan checkbox yang dicentang.
  * - Jika tidak ada pendekatan yang dicentang, gunakan NEUTRAL_NUANCE_MODIFIERS tanpa memaksakan pendekatan tak dipilih.
  * - Jika Pose Lock NONAKTIF, secara aktif merencanakan variasi pose yang berbeda untuk setiap ide variasi.
  * - Jika Pose Lock AKTIF, pertahankan pose asal dan tegakkan /poselock.
+ * - Menerapkan rasio hasil generate (10 opsi) secara konsisten di setiap variasi.
  */
 export function generateVariationsHeuristic({
   basePrompt = '',
   installedShorthands = [],
   count = 5,
   selectedApproaches = ['composition_framing', 'environment_background', 'lighting_mood', 'visual_style'],
-  lockedConfig = {}
+  lockedConfig = {},
+  aspectRatio = 'auto',
+  customAspectRatio = '',
+  sourceType = 'PREVIOUS_ANALYSIS',
+  variationImage = null,
+  previousAnalysis = null
 } = {}) {
   const cleanBase = (basePrompt || '').trim() || 'A beautiful subject in natural setting';
   const effectiveCount = Math.max(1, Math.min(10, parseInt(count, 10) || 5));
@@ -475,6 +645,16 @@ export function generateVariationsHeuristic({
     baseTextClean = baseTextClean.replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim();
   }
 
+  // Tentukan rasio target yang efektif
+  const effectiveTargetRatio = resolveTargetAspectRatio({
+    aspectRatio,
+    customAspectRatio,
+    sourceType,
+    variationImage,
+    previousAnalysis,
+    basePrompt: cleanBase
+  });
+
   const variations = [];
   for (let i = 0; i < effectiveCount; i++) {
     const modifierIndex = i % candidateModifiers.length;
@@ -512,7 +692,10 @@ export function generateVariationsHeuristic({
     }
 
     // Terapkan penegakan locks (sekaligus membersihkan lock yang false)
-    const finalPrompt = enforceInstructionLocks(variedText, cleanBase, locks);
+    const lockedPrompt = enforceInstructionLocks(variedText, cleanBase, locks);
+
+    // Terapkan penegakan aspek rasio target secara konsisten
+    const finalPrompt = applyAspectRatioToPrompt(lockedPrompt, effectiveTargetRatio);
     const finalShorthands = extractShorthandTokens(finalPrompt);
 
     // Judul yang deskriptif dan mencerminkan perbedaan semantik nyata
@@ -539,6 +722,9 @@ export function generateVariationsHeuristic({
     } else {
       explanation += ` tanpa pembatasan penguncian kaku.`;
     }
+    if (effectiveTargetRatio) {
+      explanation += ` (Rasio: ${effectiveTargetRatio})`;
+    }
 
     variations.push({
       id: `var_${i + 1}`,
@@ -549,6 +735,7 @@ export function generateVariationsHeuristic({
       basePrompt: cleanBase,
       shorthands: finalShorthands,
       poseApplied: !locks.lockPose ? poseName : 'Pose Terkunci',
+      aspectRatioApplied: effectiveTargetRatio ? `--ar ${effectiveTargetRatio}` : 'Alami (Ikuti Sumber)',
       lockedElementsApplied: locks.activeLocks.map(l => l.label),
       explanation
     });
@@ -559,6 +746,7 @@ export function generateVariationsHeuristic({
     count: variations.length,
     locks,
     selectedApproaches: approachesList,
+    targetAspectRatio: effectiveTargetRatio,
     variations
   };
 }

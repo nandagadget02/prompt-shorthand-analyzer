@@ -25,6 +25,7 @@ import { DEFAULT_COLOUR_GRADING_CONFIG } from './data/colourGradingData.js';
 import { toAiEnglishPrompt } from './lib/promptEnglishTranslator.js';
 import { detectTwoWorldsSmartParameters } from './lib/twoWorldsSmartDetector.js';
 import { regenerateOptimalBackgroundPrompt } from './lib/backgroundAnalyzer.js';
+import { validateCustomAspectRatio } from './lib/promptVariationEngine.js';
 
 import { renderHeader } from './components/Header.js';
 import { renderAnalyzerPage } from './components/AnalyzerPage.js';
@@ -118,6 +119,9 @@ class App {
         color: false,
         custom: ''
       },
+      aspectRatio: 'auto',
+      customAspectRatio: '',
+      aspectRatioError: null,
       generatedVariations: [],
       isGenerating: false,
       generationMeta: null
@@ -1135,6 +1139,20 @@ class App {
     this.promptVariationsState.lockedElements.custom = val;
   }
 
+  handleVariationAspectRatioChange(ratio) {
+    this.promptVariationsState.aspectRatio = ratio;
+    this.promptVariationsState.aspectRatioError = null;
+    this.render();
+  }
+
+  handleVariationCustomAspectRatioChange(val) {
+    this.promptVariationsState.customAspectRatio = val;
+    if (this.promptVariationsState.aspectRatio === 'custom') {
+      const validation = validateCustomAspectRatio(val);
+      this.promptVariationsState.aspectRatioError = validation.valid ? null : validation.error;
+    }
+  }
+
   async handleVariationImageSelected(file) {
     if (!file) return;
     try {
@@ -1180,6 +1198,18 @@ class App {
     let mimeType = 'image/jpeg';
     let installedShorthands = [];
 
+    // Validasi rasio kustom jika dipilih
+    if (state.aspectRatio === 'custom') {
+      const customVal = validateCustomAspectRatio(state.customAspectRatio);
+      if (!customVal.valid) {
+        state.aspectRatioError = customVal.error;
+        this.render();
+        this.showToast(customVal.error, 'error');
+        return;
+      }
+      state.aspectRatioError = null;
+    }
+
     if (state.sourceType === 'PREVIOUS_ANALYSIS') {
       basePrompt = this.analysisResult?.optimalPrompt || this.analysisResult?.generatedPrompt || this.currentPrompt || '';
       installedShorthands = this.analysisResult?.installedShorthands || [];
@@ -1221,7 +1251,11 @@ class App {
         count: state.variationCount,
         selectedApproaches: state.selectedApproaches,
         lockedConfig: state.lockedElements,
-        installedShorthands
+        installedShorthands,
+        aspectRatio: state.aspectRatio,
+        customAspectRatio: state.customAspectRatio,
+        variationImage: state.variationImage,
+        previousAnalysis: this.analysisResult
       });
 
       state.generatedVariations = result.variations || [];
@@ -1392,6 +1426,8 @@ class App {
         onToggleApproach: (id, checked) => this.handleToggleVariationApproach(id, checked),
         onToggleLock: (key, checked) => this.handleToggleVariationLock(key, checked),
         onCustomLockChange: (val) => this.handleCustomVariationLockChange(val),
+        onAspectRatioChange: (ratio) => this.handleVariationAspectRatioChange(ratio),
+        onCustomAspectRatioChange: (val) => this.handleVariationCustomAspectRatioChange(val),
         onGenerate: () => this.handleGenerateVariations(),
         onCopyPrompt: (text) => this.handleCopyPrompt(text, '✅ Prompt variasi disalin ke clipboard!'),
         onSetMainPrompt: (text) => this.handleSetMainPromptFromVariation(text),
