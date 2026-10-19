@@ -32,6 +32,7 @@ import { renderDictionaryPage } from './components/DictionaryPage.js';
 import { renderJsonTestPage } from './components/JsonTestPage.js';
 import { renderCatalogPage } from './components/CatalogPage.js';
 import { renderSettingsPage } from './components/SettingsPage.js';
+import { renderPromptVariationPage } from './components/PromptVariationPage.js';
 import { DictionaryService } from './services/dictionaryService.js';
 
 class App {
@@ -102,6 +103,25 @@ class App {
 
     // Initialize with empty analysis result
     this.analysisResult = this.geminiService.localEngine.getEmptyResult();
+
+    // Prompt Variations State (V3.8)
+    this.promptVariationsState = {
+      sourceType: 'PREVIOUS_ANALYSIS',
+      customPrompt: '',
+      variationImage: null,
+      variationCount: 5,
+      selectedApproaches: ['composition_framing', 'environment_background', 'lighting_mood', 'visual_style'],
+      lockedElements: {
+        face: true,
+        outfit: true,
+        pose: false,
+        color: false,
+        custom: ''
+      },
+      generatedVariations: [],
+      isGenerating: false,
+      generationMeta: null
+    };
 
     // Async init
     this.initRepository();
@@ -1076,6 +1096,179 @@ class App {
     this.render();
   }
 
+  // ==========================================
+  // Prompt Variations Handlers (V3.8)
+  // ==========================================
+
+  handleVariationSourceTypeChange(type) {
+    this.promptVariationsState.sourceType = type;
+    this.render();
+  }
+
+  handleVariationCustomPromptChange(val) {
+    this.promptVariationsState.customPrompt = val;
+  }
+
+  handleVariationCountChange(count) {
+    this.promptVariationsState.variationCount = count;
+    this.render();
+  }
+
+  handleToggleVariationApproach(id, isChecked) {
+    const list = this.promptVariationsState.selectedApproaches;
+    if (isChecked && !list.includes(id)) {
+      this.promptVariationsState.selectedApproaches = [...list, id];
+    } else if (!isChecked && list.includes(id)) {
+      this.promptVariationsState.selectedApproaches = list.filter(item => item !== id);
+    }
+    this.render();
+  }
+
+  handleToggleVariationLock(key, isChecked) {
+    if (this.promptVariationsState.lockedElements.hasOwnProperty(key)) {
+      this.promptVariationsState.lockedElements[key] = isChecked;
+      this.render();
+    }
+  }
+
+  handleCustomVariationLockChange(val) {
+    this.promptVariationsState.lockedElements.custom = val;
+  }
+
+  async handleVariationImageSelected(file) {
+    if (!file) return;
+    try {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target.result;
+        const img = new Image();
+        img.onload = () => {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          const aspectRatio = `${width}:${height}`;
+          this.promptVariationsState.variationImage = {
+            file,
+            name: file.name,
+            size: file.size,
+            width,
+            height,
+            aspectRatio,
+            base64,
+            type: file.type || 'image/jpeg'
+          };
+          this.render();
+          this.showToast(`Gambar variasi "${file.name}" berhasil dimuat!`);
+        };
+        img.src = base64;
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      this.showToast('Gagal memproses gambar variasi: ' + err.message, 'error');
+    }
+  }
+
+  handleVariationImageRemoved() {
+    this.promptVariationsState.variationImage = null;
+    this.render();
+    this.showToast('Gambar variasi dihapus.');
+  }
+
+  async handleGenerateVariations() {
+    const state = this.promptVariationsState;
+    let basePrompt = '';
+    let imageBase64 = null;
+    let mimeType = 'image/jpeg';
+    let installedShorthands = [];
+
+    if (state.sourceType === 'PREVIOUS_ANALYSIS') {
+      basePrompt = this.analysisResult?.optimalPrompt || this.analysisResult?.generatedPrompt || this.currentPrompt || '';
+      installedShorthands = this.analysisResult?.installedShorthands || [];
+      if (this.uploadedImage?.base64) {
+        imageBase64 = this.uploadedImage.base64;
+        mimeType = this.uploadedImage.type;
+      }
+      if (!basePrompt) {
+        this.showToast('Belum ada hasil analisis sebelumnya. Silakan masukkan prompt atau upload gambar terlebih dahulu.', 'warning');
+        return;
+      }
+    } else if (state.sourceType === 'NEW_IMAGE') {
+      if (!state.variationImage) {
+        this.showToast('Silakan pilih atau upload gambar baru untuk variasi.', 'warning');
+        return;
+      }
+      basePrompt = state.customPrompt || 'A high-end photographic portrait with pristine detail and lighting';
+      imageBase64 = state.variationImage.base64;
+      mimeType = state.variationImage.type;
+    } else {
+      // CUSTOM_PROMPT
+      basePrompt = (state.customPrompt || '').trim();
+      if (!basePrompt) {
+        this.showToast('Silakan ketik atau tempelkan prompt acuan terlebih dahulu.', 'warning');
+        return;
+      }
+      installedShorthands = (basePrompt.match(/\/[a-zA-Z0-9_-]+/g) || []);
+    }
+
+    state.isGenerating = true;
+    this.render();
+
+    try {
+      const result = await this.geminiService.generatePromptVariations({
+        source: state.sourceType,
+        basePrompt,
+        imageBase64,
+        mimeType,
+        count: state.variationCount,
+        selectedApproaches: state.selectedApproaches,
+        lockedConfig: state.lockedElements,
+        installedShorthands
+      });
+
+      state.generatedVariations = result.variations || [];
+      state.generationMeta = {
+        source: result.source,
+        notice: result.notice
+      };
+      this.showToast(`Berhasil menghasilkan ${state.generatedVariations.length} ide variasi!`);
+    } catch (err) {
+      console.error('Error generating variations:', err);
+      this.showToast('Gagal menghasilkan variasi: ' + err.message, 'error');
+    } finally {
+      state.isGenerating = false;
+      this.render();
+      const resultsEl = document.getElementById('card-variation-results');
+      if (resultsEl) resultsEl.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  handleSetMainPromptFromVariation(promptText) {
+    if (!promptText) return;
+    this.currentPrompt = promptText;
+    this.activeTab = 'analyzer';
+    this.render();
+    this.showToast('Variasi berhasil ditetapkan sebagai Prompt Utama di tab Analyzer!');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  handleOptimizeVariation(promptText) {
+    if (!promptText) return;
+    this.currentPrompt = promptText;
+    this.activeTab = 'analyzer';
+    this.render();
+    this.runAnalysis(promptText);
+    this.showToast('Prompt variasi dikirim ke Analyzer untuk dianalisis!');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  handleMakeBaseForNextVariation(promptText) {
+    if (!promptText) return;
+    this.promptVariationsState.sourceType = 'CUSTOM_PROMPT';
+    this.promptVariationsState.customPrompt = promptText;
+    this.render();
+    this.showToast('Variasi berhasil dijadikan basis baru untuk eksplorasi lanjutan!');
+    window.scrollTo({ top: 150, behavior: 'smooth' });
+  }
+
   render() {
     const geminiStatusInfo = this.geminiService.getStatus();
 
@@ -1186,6 +1379,29 @@ class App {
         onRemoveShorthand: (code) => this.handleRemoveShorthand(code),
         onToggleRecommendation: (code) => this.handleToggleRecommendation(code),
         onResolveConflict: (id, act) => this.handleResolveConflict(id, act)
+      });
+    } else if (this.activeTab === 'prompt-variations') {
+      pageContent = renderPromptVariationPage({
+        state: this.promptVariationsState,
+        previousAnalysis: this.analysisResult,
+        onSourceTypeChange: (type) => this.handleVariationSourceTypeChange(type),
+        onCustomPromptChange: (val) => this.handleVariationCustomPromptChange(val),
+        onImageSelected: (file) => this.handleVariationImageSelected(file),
+        onImageRemoved: () => this.handleVariationImageRemoved(),
+        onVariationCountChange: (count) => this.handleVariationCountChange(count),
+        onToggleApproach: (id, checked) => this.handleToggleVariationApproach(id, checked),
+        onToggleLock: (key, checked) => this.handleToggleVariationLock(key, checked),
+        onCustomLockChange: (val) => this.handleCustomVariationLockChange(val),
+        onGenerate: () => this.handleGenerateVariations(),
+        onCopyPrompt: (text) => this.handleCopyPrompt(text, '✅ Prompt variasi disalin ke clipboard!'),
+        onSetMainPrompt: (text) => this.handleSetMainPromptFromVariation(text),
+        onOptimizePrompt: (text) => this.handleOptimizeVariation(text),
+        onMakeBaseForNextVariation: (text) => this.handleMakeBaseForNextVariation(text),
+        onNavigateTab: (tab) => {
+          this.activeTab = tab;
+          this.render();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       });
     } else if (this.activeTab === 'json-test') {
       pageContent = renderJsonTestPage({

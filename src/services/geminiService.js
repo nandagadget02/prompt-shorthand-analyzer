@@ -29,6 +29,7 @@ import {
   formatPlacementProfileText,
   formatFullBackgroundReportText
 } from '../lib/backgroundAnalyzer.js';
+import { generateVariationsHeuristic } from '../lib/promptVariationEngine.js';
 
 export const GEMINI_STATUS = {
   CONNECTED: 'CONNECTED',     // 🟢 Tersambung
@@ -3194,6 +3195,151 @@ Format respons HANYA berupa JSON valid:
       goodAspects,
       repairInstructions: instructions
     };
+  }
+
+  /**
+   * Menghasilkan Ide Variasi Prompt (Tab V3.8)
+   * Terintegrasi dengan Gemini AI (jika online) dan fallback deterministik ke PromptVariationEngine
+   */
+  async generatePromptVariations({
+    source = 'PREVIOUS_ANALYSIS',
+    basePrompt = '',
+    imageBase64 = null,
+    mimeType = 'image/jpeg',
+    count = 5,
+    selectedApproaches = ['composition_framing', 'environment_background', 'lighting_mood', 'visual_style'],
+    lockedConfig = {},
+    installedShorthands = []
+  } = {}) {
+    const key = StorageService.getApiKey();
+    const isOnline = Boolean(key && this.status !== GEMINI_STATUS.FAILED);
+
+    // Heuristic result sebagai baseline & fallback aman
+    const heuristicResult = generateVariationsHeuristic({
+      basePrompt,
+      installedShorthands,
+      count,
+      selectedApproaches,
+      lockedConfig
+    });
+
+    if (!isOnline) {
+      return {
+        ...heuristicResult,
+        source: 'HEURISTIC_LOCAL',
+        notice: 'Dihasilkan secara lokal menggunakan Prompt Variation Engine V3.8.'
+      };
+    }
+
+    try {
+      const model = StorageService.getModel() || 'gemini-2.0-flash';
+      const cleanModel = model.replace(/^models\//, '');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(key)}`;
+
+      const approachesList = selectedApproaches.join(', ');
+      const locksDescription = heuristicResult.locks.activeLocks.map(l => l.label).join('; ') || 'Tidak ada elemen yang dikunci';
+
+      const promptText = `
+Anda adalah AI Creative Director untuk Prompt Shorthand Analyzer V3.8.
+Tugas Anda: Buat ${count} variasi prompt kreatif yang beragam berdasarkan basis berikut:
+
+PROMPT DASAR / KONTEKS:
+"${basePrompt}"
+
+PENDEKATAN VARIASI YANG DIINGINKAN:
+${approachesList}
+
+ATURAN PERLINDUNGAN INSTRUKSI MUTLAK (INSTRUCTION LOCK):
+Elemen berikut WAJIB dipertahankan dan TIDAK BOLEH diubah/dihapus pada SETIAP variasi:
+${locksDescription}
+
+SHORTHAND TOKENS:
+Pertahankan seluruh shorthand kunci seperti /facelock, /outfitlock, /poselock, /bodyshape jika ada, dan gunakan shorthand yang relevan dari Prompt Shorthand Analyzer.
+
+KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN SKEMA:
+{
+  "variations": [
+    {
+      "id": "var_1",
+      "title": "Nama Ringkas Variasi (contoh: Variasi 1: Golden Hour Horizon)",
+      "approachId": "pendekatan_id",
+      "approachLabel": "Label Pendekatan",
+      "prompt": "Prompt variasi lengkap berbahasa Inggris siap generate",
+      "explanation": "Penjelasan singkat perubahan visual dan estetika"
+    }
+  ]
+}
+`.trim();
+
+      const parts = [{ text: promptText }];
+      if (imageBase64) {
+        parts.push({
+          inlineData: {
+            mimeType: mimeType || 'image/jpeg',
+            data: imageBase64.replace(/^data:[^;]+;base64,/, '')
+          }
+        });
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            temperature: 0.7,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parsed = this.extractJson(rawText);
+
+      if (parsed && Array.isArray(parsed.variations) && parsed.variations.length > 0) {
+        const enriched = parsed.variations.map((v, i) => {
+          const lockedApplied = heuristicResult.locks.activeLocks.map(l => l.label);
+          return {
+            id: v.id || `var_${i + 1}`,
+            title: v.title || `Variasi ${i + 1}`,
+            approachId: v.approachId || 'creative_concept',
+            approachLabel: v.approachLabel || 'Konsep Kreatif',
+            prompt: v.prompt || '',
+            basePrompt: basePrompt,
+            shorthands: (v.prompt || '').match(/\/[a-zA-Z0-9_-]+/g) || [],
+            lockedElementsApplied: lockedApplied,
+            explanation: v.explanation || 'Eksplorasi variasi kreatif berbasis AI.'
+          };
+        });
+
+        return {
+          sourceBasePrompt: basePrompt,
+          count: enriched.length,
+          locks: heuristicResult.locks,
+          variations: enriched,
+          source: 'GEMINI_AI',
+          notice: `Dihasilkan menggunakan ${cleanModel} dengan perlindungan instruksi semantik.`
+        };
+      }
+
+      return {
+        ...heuristicResult,
+        source: 'HEURISTIC_LOCAL',
+        notice: 'Dihasilkan secara lokal menggunakan Prompt Variation Engine V3.8.'
+      };
+    } catch (err) {
+      console.warn('Gemini generatePromptVariations error, fallback to heuristic:', err);
+      return {
+        ...heuristicResult,
+        source: 'HEURISTIC_LOCAL',
+        notice: `Dihasilkan menggunakan engine lokal V3.8 (${err.message || 'Offline'}).`
+      };
+    }
   }
 }
 

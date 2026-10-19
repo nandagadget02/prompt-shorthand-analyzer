@@ -40,6 +40,10 @@ export function renderHeader(activeTab, geminiStatusInfo, onTabChange, onOpenSet
             <svg class="icon-sm" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
             Analyzer
           </button>
+          <button type="button" class="nav-item ${activeTab === 'prompt-variations' ? 'active' : ''}" data-tab="prompt-variations" role="tab" aria-selected="${activeTab === 'prompt-variations'}">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z"/></svg>
+            Ide Variasi Prompt
+          </button>
           <button type="button" class="nav-item ${activeTab === 'dictionary' ? 'active' : ''}" data-tab="dictionary" role="tab" aria-selected="${activeTab === 'dictionary'}">
             <svg class="icon-sm" viewBox="0 0 24 24"><path fill="currentColor" d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg>
             Kamus Shorthand
