@@ -17,6 +17,7 @@ import { runV38FeatureTests } from './negativePromptAndBatchExport.test.js';
 import { runPromptVariationTests } from './promptVariations.test.js';
 import { runPromptAnalysisRatioTests } from './promptAnalysisRatio.test.js';
 import { runPromptOptimizerTests } from './promptOptimizer.test.js';
+import { runColorGradingStyleAnalyzerTests } from './colorGradingStyleAnalyzer.test.js';
 import { runDictionaryCatalogIntegrationTests } from './dictionaryCatalogIntegration.test.js';
 import { renderConflictBanner } from '../src/components/ConflictBanner.js';
 import { renderExcludedShorthands } from '../src/components/ExcludedShorthands.js';
@@ -3461,6 +3462,10 @@ failed += ratioAnalysisRes.failed;
 const optimizerRes = runPromptOptimizerTests();
 passed += optimizerRes.passed;
 failed += optimizerRes.failed;
+
+const styleAnalyzerRes = runColorGradingStyleAnalyzerTests();
+passed += styleAnalyzerRes.passed;
+failed += styleAnalyzerRes.failed;
 
 await runDictionaryCatalogIntegrationTests(assert);
 

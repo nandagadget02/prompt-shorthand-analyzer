@@ -25,12 +25,18 @@ export const COLOUR_GRADING_MODES = [
     id: 'CUSTOM_STYLE',
     label: '⚙️ Custom Style (Parameter Pengguna)',
     description: 'Atur warmth, tint, contrast, highlights, shadows, vibrance, dan tone bayangan/highlight secara presisi dengan koreksi adaptif AI.'
+  },
+  {
+    id: 'AI_STYLE_ANALYZER',
+    label: '🎨 AI Color Grading & Style Analyzer',
+    description: 'Analisis foto, rekomendasikan gaya editing berdasarkan kecocokan visual, atur jumlah style yang ditampilkan, tambahkan request editing, dan buat prompt siap pakai untuk ChatGPT.'
   }
 ];
 
 COLOUR_GRADING_MODES.AUTO = 'AUTO';
 COLOUR_GRADING_MODES.SELECT_STYLE = 'SELECT_STYLE';
 COLOUR_GRADING_MODES.CUSTOM_STYLE = 'CUSTOM_STYLE';
+COLOUR_GRADING_MODES.AI_STYLE_ANALYZER = 'AI_STYLE_ANALYZER';
 
 export const COLOUR_GRADING_CATEGORIES = [
   {
@@ -163,6 +169,17 @@ export const DEFAULT_COLOUR_GRADING_CONFIG = {
     colorIntensity: 0,
     shadowTone: 'Neutral',     // 'Neutral' | 'Cool Blue' | 'Deep Teal' | 'Warm Amber' | 'Slate Gray'
     highlightTone: 'Neutral'  // 'Neutral' | 'Soft Gold' | 'Clean White' | 'Warm Amber' | 'Soft Rose'
+  },
+
+  // AI Color Grading & Style Analyzer State (V3.8)
+  aiStyleAnalyzer: {
+    displayCount: 10, // 1 to 20 or 'all'
+    selectedStyle: null,
+    additionalRequest: '',
+    rankedResults: [],
+    photoProfile: null,
+    generatedPrompt: '',
+    isStale: false
   }
 };
 

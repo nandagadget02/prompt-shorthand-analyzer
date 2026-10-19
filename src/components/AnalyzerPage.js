@@ -188,7 +188,8 @@ export function renderAnalyzerPage({
     onCopyVariationPrompt,
     onSetMainPromptFromVariation,
     onOptimizeVariation,
-    onMakeBaseForNextVariation
+    onMakeBaseForNextVariation,
+    showNotification
   });
 
   const conflictBannerComp = renderConflictBanner(conflicts, onResolveConflict, activeMode);

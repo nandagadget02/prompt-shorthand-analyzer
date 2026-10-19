@@ -1630,6 +1630,18 @@ class App {
             this.batchGradingImages = [];
             this.activeGradingBatchIndex = 0;
           }
+
+          // Reset hasil analisis AI Style Analyzer sebelumnya untuk foto baru,
+          // tetapi pertahankan teks request tambahan dan pilihan jumlah tampilan pengguna
+          if (this.colourGradingConfig && this.colourGradingConfig.aiStyleAnalyzer) {
+            this.colourGradingConfig.aiStyleAnalyzer = {
+              ...this.colourGradingConfig.aiStyleAnalyzer,
+              photoDiagnostics: null,
+              rankedResults: null,
+              generatedPrompt: ''
+            };
+          }
+
           this.analysisResult = this.geminiService.localEngine.getEmptyResult();
           this.render();
           if (this.activeMode === 'IMAGE_TO_PROMPT' || this.activeMode === 'TWO_WORLDS' || this.activeMode === 'BACKGROUND_ANALYSIS') {

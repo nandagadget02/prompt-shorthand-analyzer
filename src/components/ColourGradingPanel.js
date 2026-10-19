@@ -25,6 +25,12 @@ import {
   SHADOW_TONE_OPTIONS,
   HIGHLIGHT_TONE_OPTIONS
 } from '../data/colourGradingData.js';
+import {
+  evaluatePhotoCharacteristics,
+  evaluateAndRankStyles,
+  sliceDisplayedStyles,
+  buildChatGPTEditingPrompt
+} from '../lib/colorGradingStyleAnalyzer.js';
 
 export function renderColourGradingPanel({
   config,
@@ -33,7 +39,8 @@ export function renderColourGradingPanel({
   onResetGrading,
   batchImages = [],
   activeBatchIndex = 0,
-  onSelectBatchImage
+  onSelectBatchImage,
+  showNotification
 }) {
   const cfg = config || {};
   const currentMode = cfg.mode || 'AUTO';
@@ -41,6 +48,31 @@ export function renderColourGradingPanel({
   const intensity = typeof cfg.intensity === 'number' ? cfg.intensity : 50;
   const protections = cfg.protections || {};
   const custom = cfg.custom || {};
+  const aiStyleAnalyzer = cfg.aiStyleAnalyzer || {
+    selectedStyle: 'Cinematic Teal & Orange',
+    displayCount: 10,
+    additionalRequest: '',
+    generatedPrompt: '',
+    photoDiagnostics: null,
+    rankedResults: null
+  };
+
+  // Evaluasi karakteristik & ranking untuk AI Style Analyzer
+  const photoDiagnostics = aiStyleAnalyzer.photoDiagnostics || evaluatePhotoCharacteristics(uploadedImage);
+  const rankedStyles = (aiStyleAnalyzer.rankedResults && aiStyleAnalyzer.rankedResults.length > 0)
+    ? aiStyleAnalyzer.rankedResults
+    : evaluateAndRankStyles(photoDiagnostics, ALL_COLOUR_GRADING_STYLES);
+
+  const displayCountChoice = aiStyleAnalyzer.displayCount !== undefined ? aiStyleAnalyzer.displayCount : 10;
+  const {
+    displayedStyles,
+    totalRelevant,
+    displayedCount,
+    indicatorText
+  } = sliceDisplayedStyles(rankedStyles, displayCountChoice);
+
+  const activeAiSelectedStyle = aiStyleAnalyzer.selectedStyle || (displayedStyles[0] ? displayedStyles[0].name : selectedStyle);
+  const activeAiStyleObj = ALL_COLOUR_GRADING_STYLES.find(s => s.name === activeAiSelectedStyle) || displayedStyles[0] || null;
 
   const currentStyleObj = ALL_COLOUR_GRADING_STYLES.find(s => s.name === selectedStyle) || {
     name: selectedStyle,
@@ -370,85 +402,290 @@ export function renderColourGradingPanel({
         </div>
       ` : ''}
 
-      <!-- 7. COLOR GRADING INTENSITY CONTROL -->
-      <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.4rem;">
-          <label for="cg-intensity-range" style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
-            <span>⚡</span>
-            <span>3. COLOR GRADING INTENSITY:</span>
-          </label>
-          <span id="cg-intensity-badge" style="font-size: 0.8rem; font-weight: 700; color: #f472b6; background: rgba(236, 72, 153, 0.15); border: 1px solid rgba(236, 72, 153, 0.3); padding: 0.15rem 0.55rem; border-radius: 4px;">
-            ${intensity}%
-          </span>
+      ${currentMode === 'AI_STYLE_ANALYZER' ? `
+        <!-- ========================================== -->
+        <!-- MODE: AI COLOR GRADING & STYLE ANALYZER   -->
+        <!-- ========================================== -->
+
+        <!-- 1. EVALUASI KARAKTERISTIK FOTO AKTUAL -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(236, 72, 153, 0.25); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.4rem;">
+            <label style="font-size: 0.825rem; font-weight: 700; color: #f472b6; display: flex; align-items: center; gap: 0.4rem;">
+              <span>🔬</span>
+              <span>2. KARAKTERISTIK VISUAL FOTO ASLI (SOURCE OF TRUTH)</span>
+            </label>
+            <span style="font-size: 0.72rem; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 0.15rem 0.5rem; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.25);">
+              ${uploadedImage ? 'Foto Terdeteksi' : 'Mode Eksplorasi (Tanpa Foto)'}
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem; font-size: 0.775rem;">
+            <div style="background: rgba(30, 41, 59, 0.5); padding: 0.5rem 0.65rem; border-radius: 5px; border-left: 3px solid #ec4899;">
+              <span style="color: #94a3b8; display: block; font-size: 0.7rem;">Subjek &amp; Komposisi:</span>
+              <strong style="color: #f1f5f9;">${photoDiagnostics.subjectType}</strong>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.5); padding: 0.5rem 0.65rem; border-radius: 5px; border-left: 3px solid #38bdf8;">
+              <span style="color: #94a3b8; display: block; font-size: 0.7rem;">Pencahayaan &amp; Exposure:</span>
+              <strong style="color: #f1f5f9;">${photoDiagnostics.exposureCondition}</strong>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.5); padding: 0.5rem 0.65rem; border-radius: 5px; border-left: 3px solid #fbbf24;">
+              <span style="color: #94a3b8; display: block; font-size: 0.7rem;">White Balance &amp; Rona:</span>
+              <strong style="color: #f1f5f9;">${photoDiagnostics.whiteBalance} (${photoDiagnostics.colorTemperature})</strong>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.5); padding: 0.5rem 0.65rem; border-radius: 5px; border-left: 3px solid #a855f7;">
+              <span style="color: #94a3b8; display: block; font-size: 0.7rem;">Kontras &amp; Saturasi:</span>
+              <strong style="color: #f1f5f9;">${photoDiagnostics.contrastLevel} • ${photoDiagnostics.saturationLevel}</strong>
+            </div>
+          </div>
         </div>
 
-        <input 
-          type="range" 
-          id="cg-intensity-range" 
-          min="0" 
-          max="100" 
-          step="1" 
-          value="${intensity}" 
-          style="width: 100%; accent-color: #ec4899; margin-bottom: 0.5rem;" 
-        />
+        <!-- 2. CONTROLLER JUMLAH STYLE YANG DITAMPILKAN -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.75rem 0.85rem; margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <label for="cg-analyzer-display-count" style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
+              <span>🔢</span>
+              <span>JUMLAH STYLE YANG DITAMPILKAN:</span>
+            </label>
+            <select id="cg-analyzer-display-count" style="background: #0f172a; border: 1px solid rgba(236, 72, 153, 0.4); color: #f8fafc; padding: 0.35rem 0.65rem; border-radius: 5px; font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer;">
+              ${[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(n => `
+                <option value="${n}" ${String(displayCountChoice) === String(n) ? 'selected' : ''}>
+                  ${n} style
+                </option>
+              `).join('')}
+              <option value="all" ${(String(displayCountChoice) === 'all' || displayCountChoice === 'Semua Style Relevan') ? 'selected' : ''}>
+                Semua Style Relevan
+              </option>
+            </select>
+          </div>
 
-        <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-          ${INTENSITY_LEVELS.map(lvl => `
+          <!-- Real-Time Counter Badge -->
+          <div id="cg-analyzer-indicator-badge" style="font-size: 0.75rem; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 600;">
+            📊 ${indicatorText}
+          </div>
+        </div>
+
+        <!-- 3. KARTU REKOMENDASI GAYA EDITING -->
+        <div style="margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
+              <span>🎯</span>
+              <span>3. REKOMENDASI GAYA EDITING BERDASARKAN FOTO:</span>
+            </label>
+            <span style="font-size: 0.72rem; color: #94a3b8;">
+              Pilih satu style untuk membuat prompt editing ChatGPT
+            </span>
+          </div>
+
+          <div id="cg-analyzer-style-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.65rem;">
+            ${displayedStyles.map(st => {
+              const isSelected = activeAiSelectedStyle === st.name;
+              let badgeColor = '#38bdf8';
+              let badgeBg = 'rgba(56, 189, 248, 0.15)';
+              let badgeBorder = 'rgba(56, 189, 248, 0.35)';
+
+              if (st.matchLabel === 'Paling Sesuai') {
+                badgeColor = '#4ade80';
+                badgeBg = 'rgba(74, 222, 128, 0.15)';
+                badgeBorder = 'rgba(74, 222, 128, 0.4)';
+              } else if (st.matchLabel === 'Sangat Sesuai') {
+                badgeColor = '#f472b6';
+                badgeBg = 'rgba(236, 72, 153, 0.15)';
+                badgeBorder = 'rgba(236, 72, 153, 0.4)';
+              }
+
+              return `
+                <div 
+                  class="cg-ai-style-card ${isSelected ? 'active' : ''}" 
+                  data-style-name="${st.name}"
+                  style="background: ${isSelected ? 'rgba(236, 72, 153, 0.12)' : 'rgba(15, 23, 42, 0.65)'}; border: 1px solid ${isSelected ? '#ec4899' : 'rgba(255, 255, 255, 0.08)'}; border-radius: var(--radius-sm); padding: 0.75rem 0.85rem; display: flex; flex-direction: column; justify-content: space-between; gap: 0.5rem; transition: all 0.2s ease;"
+                >
+                  <div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem; margin-bottom: 0.35rem;">
+                      <strong style="font-size: 0.85rem; color: ${isSelected ? '#f472b6' : '#f1f5f9'};">
+                        ${st.categoryIcon || '🎨'} ${st.name}
+                      </strong>
+                      <span style="font-size: 0.68rem; font-weight: 700; color: ${badgeColor}; background: ${badgeBg}; border: 1px solid ${badgeBorder}; padding: 0.15rem 0.45rem; border-radius: 4px; white-space: nowrap;">
+                        ${st.matchLabel} (${st.matchScore}%)
+                      </span>
+                    </div>
+
+                    <p style="font-size: 0.725rem; color: #cbd5e1; line-height: 1.4; margin-bottom: 0.35rem;">
+                      <strong style="color: #94a3b8;">Alasan:</strong> ${st.reason}
+                    </p>
+
+                    <p style="font-size: 0.7rem; color: #94a3b8; line-height: 1.35; font-style: italic; margin-bottom: 0;">
+                      <strong style="color: #cbd5e1; font-style: normal;">Hasil:</strong> ${st.outcomeSummary}
+                    </p>
+                  </div>
+
+                  <div style="display: flex; justify-content: flex-end; align-items: center; pt: 0.25rem;">
+                    <button 
+                      type="button" 
+                      class="btn btn-xs btn-select-ai-style ${isSelected ? 'btn-primary' : 'btn-outline'}" 
+                      data-style-name="${st.name}"
+                      style="font-size: 0.72rem; padding: 0.25rem 0.65rem;"
+                    >
+                      ${isSelected ? '✓ Style Terpilih' : 'Pilih Style'}
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- 4. REQUEST EDITING TAMBAHAN (OPSIONAL) -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem;">
+          <label for="cg-analyzer-request" style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+            <span>✍️</span>
+            <span>4. REQUEST EDITING TAMBAHAN (OPSIONAL):</span>
+          </label>
+          <textarea 
+            id="cg-analyzer-request" 
+            class="font-mono"
+            rows="3"
+            placeholder="Contoh: buat langit sedikit lebih dramatis, naikkan kehangatan cahaya matahari, jaga warna jaket tetap hitam pekat, buat bayangan lebih lembut..." 
+            style="width: 100%; background: #0b1120; border: 1px solid rgba(255, 255, 255, 0.12); color: #f8fafc; padding: 0.5rem 0.65rem; border-radius: 5px; font-size: 0.775rem; line-height: 1.4; outline: none; resize: vertical;"
+          >${aiStyleAnalyzer.additionalRequest || ''}</textarea>
+          <small style="color: #94a3b8; display: block; margin-top: 0.35rem; font-size: 0.72rem;">
+            💡 <em>Instruksi Anda akan diterjemahkan ke bahasa editing teknis dan disisipkan dengan prioritas tinggi pada Prompt ChatGPT.</em>
+          </small>
+        </div>
+
+        <!-- 5. TOMBOL GENERATE PROMPT EDITING & OUTPUT BOX CHATGPT -->
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(236, 72, 153, 0.3); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <strong style="font-size: 0.825rem; color: #f472b6; display: flex; align-items: center; gap: 0.35rem;">
+                <span>💬</span>
+                <span>PROMPT EDITING UNTUK CHATGPT</span>
+              </strong>
+              <small style="font-size: 0.71rem; color: #94a3b8; display: block;">
+                Style Terpilih: <span style="color: #f1f5f9; font-weight: 600;">${activeAiSelectedStyle}</span>
+                ${aiStyleAnalyzer.additionalRequest ? ' • <span style="color: #38bdf8;">Request Tambahan Aktif</span>' : ''}
+              </small>
+            </div>
+
             <button 
               type="button" 
-              class="btn btn-xs ${intensity === lvl.value ? 'btn-primary' : 'btn-outline'}" 
-              data-cg-intensity="${lvl.value}"
-              style="font-size: 0.725rem; padding: 0.25rem 0.55rem;"
-              title="${lvl.description}"
+              id="btn-build-chatgpt-prompt" 
+              class="btn btn-primary"
+              style="font-size: 0.775rem; padding: 0.35rem 0.85rem; display: flex; align-items: center; gap: 0.35rem;"
             >
-              ${lvl.label}
+              <span>⚡</span>
+              <span>Buat Prompt Editing</span>
             </button>
-          `).join('')}
+          </div>
+
+          <div style="position: relative;">
+            <textarea 
+              id="cg-chatgpt-prompt-output" 
+              class="font-mono" 
+              rows="7" 
+              readonly 
+              placeholder="Pilih style di atas lalu klik tombol [⚡ Buat Prompt Editing] untuk menghasilkan prompt pengeditan foto yang siap digunakan bersama foto asli di ChatGPT..." 
+              style="width: 100%; background: #090d16; border: 1px solid rgba(255, 255, 255, 0.15); color: #f8fafc; padding: 0.65rem 0.75rem; border-radius: 5px; font-size: 0.75rem; line-height: 1.45; outline: none; resize: vertical;"
+            >${aiStyleAnalyzer.generatedPrompt || ''}</textarea>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+              <small style="color: #94a3b8; font-size: 0.71rem;">
+                🔒 <em>Aturan proteksi aktif: Non-Generative, Non-Destructive, 100% Retain facial identity, clothing, &amp; geometry.</em>
+              </small>
+
+              <button 
+                type="button" 
+                id="btn-copy-chatgpt-prompt" 
+                class="btn btn-outline btn-xs"
+                ${!aiStyleAnalyzer.generatedPrompt ? 'disabled' : ''}
+                style="font-size: 0.75rem; padding: 0.3rem 0.75rem; display: flex; align-items: center; gap: 0.3rem;"
+              >
+                <span>📋</span>
+                <span>Salin Prompt</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      ` : `
+        <!-- 7. COLOR GRADING INTENSITY CONTROL (MODE AUTO / SELECT / CUSTOM) -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.4rem;">
+            <label for="cg-intensity-range" style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
+              <span>⚡</span>
+              <span>3. COLOR GRADING INTENSITY:</span>
+            </label>
+            <span id="cg-intensity-badge" style="font-size: 0.8rem; font-weight: 700; color: #f472b6; background: rgba(236, 72, 153, 0.15); border: 1px solid rgba(236, 72, 153, 0.3); padding: 0.15rem 0.55rem; border-radius: 4px;">
+              ${intensity}%
+            </span>
+          </div>
 
-      <!-- 8. INTELLIGENT PROTECTION SYSTEM -->
-      <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.85rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.4rem;">
-          <label style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
-            <span>🛡️</span>
-            <span>4. INTELLIGENT PROTECTIONS (Pelindung Kualitas Foto Asli):</span>
-          </label>
-          <span style="font-size: 0.725rem; color: #4ade80;">Semua Proteksi Aktif</span>
+          <input 
+            type="range" 
+            id="cg-intensity-range" 
+            min="0" 
+            max="100" 
+            step="1" 
+            value="${intensity}" 
+            style="width: 100%; accent-color: #ec4899; margin-bottom: 0.5rem;" 
+          />
+
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${INTENSITY_LEVELS.map(lvl => `
+              <button 
+                type="button" 
+                class="btn btn-xs ${intensity === lvl.value ? 'btn-primary' : 'btn-outline'}" 
+                data-cg-intensity="${lvl.value}"
+                style="font-size: 0.725rem; padding: 0.25rem 0.55rem;"
+                title="${lvl.description}"
+              >
+                ${lvl.label}
+              </button>
+            `).join('')}
+          </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.45rem;">
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-skin" ${protections.skinToneProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Skin Tone Protection</strong> (Rona Kulit Alami)</span>
-          </label>
+        <!-- 8. INTELLIGENT PROTECTION SYSTEM -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); padding: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.4rem;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.35rem;">
+              <span>🛡️</span>
+              <span>4. INTELLIGENT PROTECTIONS (Pelindung Kualitas Foto Asli):</span>
+            </label>
+            <span style="font-size: 0.725rem; color: #4ade80;">Semua Proteksi Aktif</span>
+          </div>
 
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-hl" ${protections.highlightProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Highlight Protection</strong> (Anti-Blown/Clipping)</span>
-          </label>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.45rem;">
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-skin" ${protections.skinToneProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Skin Tone Protection</strong> (Rona Kulit Alami)</span>
+            </label>
 
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-sh" ${protections.shadowProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Shadow Protection</strong> (Anti-Crushed Blacks)</span>
-          </label>
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-hl" ${protections.highlightProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Highlight Protection</strong> (Anti-Blown/Clipping)</span>
+            </label>
 
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-oversat" ${protections.oversaturationProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Oversaturation Protection</strong> (Batas Gamut)</span>
-          </label>
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-sh" ${protections.shadowProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Shadow Protection</strong> (Anti-Crushed Blacks)</span>
+            </label>
 
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-clip" ${protections.clippingProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Clipping Protection</strong> (Safe RGB 0-255)</span>
-          </label>
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-oversat" ${protections.oversaturationProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Oversaturation Protection</strong> (Batas Gamut)</span>
+            </label>
 
-          <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" id="cg-prot-natcolor" ${protections.naturalColorProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
-            <span><strong>Natural Color Protection</strong> (Langit &amp; Daun)</span>
-          </label>
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-clip" ${protections.clippingProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Clipping Protection</strong> (Safe RGB 0-255)</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.775rem; color: #cbd5e1; cursor: pointer;">
+              <input type="checkbox" id="cg-prot-natcolor" ${protections.naturalColorProtection !== false ? 'checked' : ''} style="accent-color: #ec4899;" />
+              <span><strong>Natural Color Protection</strong> (Langit &amp; Daun)</span>
+            </label>
+          </div>
         </div>
-      </div>
+      `}
     </div>
   `;
 
@@ -840,6 +1077,137 @@ export function renderColourGradingPanel({
           }
         });
       });
+
+      // ==========================================
+      // AI STYLE ANALYZER EVENT BINDINGS
+      // ==========================================
+
+      // 1. Display Count Selector Change (Re-slices in-memory without re-analyzing)
+      const displayCountSelect = panel.querySelector('#cg-analyzer-display-count');
+      if (displayCountSelect) {
+        displayCountSelect.addEventListener('change', (e) => {
+          const rawVal = e.target.value;
+          const val = rawVal === 'all' ? 'all' : parseInt(rawVal, 10);
+          if (onConfigChange) {
+            onConfigChange({
+              ...cfg,
+              aiStyleAnalyzer: {
+                ...aiStyleAnalyzer,
+                displayCount: val,
+                photoDiagnostics,
+                rankedResults: rankedStyles
+              }
+            });
+          }
+        });
+      }
+
+      // 2. Select Style Cards
+      panel.querySelectorAll('.btn-select-ai-style, .cg-ai-style-card').forEach(el => {
+        el.addEventListener('click', (e) => {
+          // If clicked inside the card or on the button, extract style name
+          const styleName = el.getAttribute('data-style-name') || el.closest('[data-style-name]')?.getAttribute('data-style-name');
+          if (!styleName) return;
+
+          // Don't duplicate if clicking button inside card
+          if (el.classList.contains('cg-ai-style-card') && e.target.closest('.btn-select-ai-style')) {
+            return;
+          }
+
+          if (onConfigChange) {
+            onConfigChange({
+              ...cfg,
+              selectedStyle: styleName,
+              aiStyleAnalyzer: {
+                ...aiStyleAnalyzer,
+                selectedStyle: styleName,
+                photoDiagnostics,
+                rankedResults: rankedStyles
+              }
+            });
+          }
+        });
+      });
+
+      // 3. Additional Request Textarea Input (persists value)
+      const requestTextarea = panel.querySelector('#cg-analyzer-request');
+      if (requestTextarea) {
+        requestTextarea.addEventListener('input', (e) => {
+          const val = e.target.value;
+          // Local silent state update without full re-render on every keystroke
+          if (cfg.aiStyleAnalyzer) {
+            cfg.aiStyleAnalyzer.additionalRequest = val;
+          }
+        });
+        requestTextarea.addEventListener('change', (e) => {
+          if (onConfigChange) {
+            onConfigChange({
+              ...cfg,
+              aiStyleAnalyzer: {
+                ...aiStyleAnalyzer,
+                additionalRequest: e.target.value,
+                photoDiagnostics,
+                rankedResults: rankedStyles
+              }
+            });
+          }
+        });
+      }
+
+      // 4. Generate ChatGPT Editing Prompt Button
+      const buildPromptBtn = panel.querySelector('#btn-build-chatgpt-prompt');
+      if (buildPromptBtn) {
+        buildPromptBtn.addEventListener('click', () => {
+          const currentReq = requestTextarea ? requestTextarea.value : (aiStyleAnalyzer.additionalRequest || '');
+          const prompt = buildChatGPTEditingPrompt({
+            photoCharacteristics: photoDiagnostics,
+            selectedStyleObj: activeAiStyleObj,
+            additionalRequest: currentReq,
+            intensity
+          });
+
+          if (onConfigChange) {
+            onConfigChange({
+              ...cfg,
+              aiStyleAnalyzer: {
+                ...aiStyleAnalyzer,
+                additionalRequest: currentReq,
+                generatedPrompt: prompt,
+                photoDiagnostics,
+                rankedResults: rankedStyles
+              }
+            });
+          }
+          if (showNotification) {
+            showNotification('✅ Prompt editing ChatGPT berhasil dibuat!');
+          }
+        });
+      }
+
+      // 5. Copy ChatGPT Prompt Button
+      const copyPromptBtn = panel.querySelector('#btn-copy-chatgpt-prompt');
+      if (copyPromptBtn) {
+        copyPromptBtn.addEventListener('click', () => {
+          const promptText = aiStyleAnalyzer.generatedPrompt || '';
+          if (!promptText.trim()) return;
+
+          navigator.clipboard.writeText(promptText).then(() => {
+            if (showNotification) {
+              showNotification('📋 Prompt editing untuk ChatGPT berhasil disalin ke clipboard!');
+            }
+          }).catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = promptText;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            if (showNotification) {
+              showNotification('📋 Prompt editing untuk ChatGPT berhasil disalin ke clipboard!');
+            }
+          });
+        });
+      }
     }
   };
 }

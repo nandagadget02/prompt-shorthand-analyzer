@@ -74,7 +74,8 @@ export function renderPromptInput({
   onCopyVariationPrompt,
   onSetMainPromptFromVariation,
   onOptimizeVariation,
-  onMakeBaseForNextVariation
+  onMakeBaseForNextVariation,
+  showNotification
 }) {
   const presets = renderPresetTests(onSelectPreset);
   const colourGradingPanelComp = activeMode === 'COLOUR_GRADING'
@@ -85,7 +86,8 @@ export function renderPromptInput({
         onResetGrading,
         batchImages,
         activeBatchIndex,
-        onSelectBatchImage
+        onSelectBatchImage,
+        showNotification
       })
     : null;
 
