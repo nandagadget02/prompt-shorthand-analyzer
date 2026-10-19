@@ -1205,7 +1205,7 @@ class App {
         <footer class="app-footer">
           <div class="footer-container">
             <div>
-              <strong>PROMPT SHORTHAND ANALYZER V3.0</strong> &mdash; Safe Patch-Only Architecture
+              <strong>PROMPT SHORTHAND ANALYZER V3.8</strong> &mdash; Safe Patch-Only Architecture
             </div>
             <div>
               BYOK Gemini API &bull; Fallback Offline Heuristic &bull; Kamus Shorthand Enabled
