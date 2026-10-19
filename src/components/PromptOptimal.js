@@ -1,11 +1,13 @@
 /**
- * PromptOptimal Component V2
- * Menampilkan hasil prompt bersih siap pakai dengan shorthand terpasang.
+ * PromptOptimal Component V3.8
+ * Menampilkan hasil prompt bersih siap pakai dengan shorthand terpasang,
+ * Dynamic Negative Prompt Builder, dan Multi-Format Exporter (JSON, TXT, CSV).
  * Tombol SALIN PROMPT hanya menyalin main prompt bersih tanpa metadata tambahan.
  */
 
 import { renderInstalledShorthands } from './InstalledShorthands.js';
 import { countWords, estimateTokens, calculateShorthandDensity } from '../lib/promptFormatter.js';
+import { renderNegativePromptPanel } from './NegativePromptPanel.js';
 
 export function renderPromptOptimal({
   optimalPrompt = '',
@@ -16,13 +18,22 @@ export function renderPromptOptimal({
   onCopyPrompt,
   onEnrichPrompt,
   onRemoveShorthand,
-  onAddShorthand
+  onAddShorthand,
+  onCopyText,
+  showNotification
 }) {
   const installedComponent = renderInstalledShorthands({
     installedShorthands,
     catalog,
     onRemoveShorthand,
     onAddShorthand
+  });
+
+  const negativePanelComponent = renderNegativePromptPanel({
+    optimalPrompt,
+    installedShorthands,
+    onCopyText: onCopyText || onCopyPrompt,
+    showNotification
   });
 
   const wordCount = countWords(optimalPrompt);
@@ -63,6 +74,9 @@ export function renderPromptOptimal({
 
       <!-- Installed Shorthands Control Component -->
       ${installedComponent.html}
+
+      <!-- Dynamic Negative Prompt Builder & Multi-Format Exporter (V3.8) -->
+      ${negativePanelComponent.html}
     </section>
   `;
 
@@ -70,6 +84,7 @@ export function renderPromptOptimal({
     html,
     bindEvents(container) {
       installedComponent.bindEvents(container);
+      negativePanelComponent.bindEvents(container);
 
       const copyBtn = container.querySelector('#btn-copy-main-prompt');
       if (copyBtn) {

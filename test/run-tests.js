@@ -13,6 +13,7 @@ import { DictionaryService } from '../src/services/dictionaryService.js';
 import { GeminiService } from '../src/services/geminiService.js';
 import { StorageService } from '../src/services/storageService.js';
 import { runAutoFillerTests } from './shorthandAutoFiller.test.js';
+import { runV38FeatureTests } from './negativePromptAndBatchExport.test.js';
 import { renderConflictBanner } from '../src/components/ConflictBanner.js';
 import { renderExcludedShorthands } from '../src/components/ExcludedShorthands.js';
 import { renderPromptInput } from '../src/components/PromptInput.js';
@@ -3415,6 +3416,10 @@ console.log('\n--- VERIFIKASI MASTER PATCH: BACKGROUND ANALYZER AI + PROMPT ANAL
 const autoFillerRes = await runAutoFillerTests();
 passed += autoFillerRes.passed;
 failed += autoFillerRes.failed;
+
+const v38Res = runV38FeatureTests();
+passed += v38Res.passed;
+failed += v38Res.failed;
 
 console.log('\n==================================================');
 console.log(`HASIL AKHIR: ${passed} PASSED, ${failed} FAILED`);
