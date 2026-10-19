@@ -25,7 +25,7 @@ import { DEFAULT_COLOUR_GRADING_CONFIG } from './data/colourGradingData.js';
 import { toAiEnglishPrompt } from './lib/promptEnglishTranslator.js';
 import { detectTwoWorldsSmartParameters } from './lib/twoWorldsSmartDetector.js';
 import { regenerateOptimalBackgroundPrompt } from './lib/backgroundAnalyzer.js';
-import { validateCustomAspectRatio } from './lib/promptVariationEngine.js';
+import { validateCustomAspectRatio, applyAspectRatioToPrompt, detectSourceAspectRatio } from './lib/promptVariationEngine.js';
 
 import { renderHeader } from './components/Header.js';
 import { renderAnalyzerPage } from './components/AnalyzerPage.js';
@@ -51,6 +51,10 @@ class App {
     this.uploadedImage = null;
     this.selectedAspectRatio = 'auto'; // 'auto' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '9:16' | '16:9'
     this.currentPrompt = '';
+    // Prompt Analysis Aspect Ratio State (V3.8 Patch)
+    this.promptAnalysisAspectRatio = 'auto'; // 'auto' | '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16' | '21:9' | 'custom'
+    this.promptAnalysisCustomAspectRatio = '';
+    this.promptAnalysisAspectRatioError = null;
     this.isAnalyzing = false;
     this.catalogCategory = 'ALL';
     this.catalogTarget = 'ALL';
@@ -357,6 +361,18 @@ class App {
       return;
     }
 
+    // Validasi custom aspect ratio jika mode custom aktif
+    if (this.promptAnalysisAspectRatio === 'custom') {
+      const val = validateCustomAspectRatio(this.promptAnalysisCustomAspectRatio);
+      if (!val.valid) {
+        this.promptAnalysisAspectRatioError = val.error;
+        this.showToast(val.error, 'warning');
+        this.render();
+        return;
+      }
+      this.promptAnalysisAspectRatioError = null;
+    }
+
     this.currentPrompt = promptText;
     this.isAnalyzing = true;
     this.render();
@@ -364,6 +380,10 @@ class App {
     try {
       const result = await this.geminiService.analyzePrompt(promptText, installedOverrides);
       this.analysisResult = result;
+
+      // Terapkan rasio hasil generate terpilih ke PROMPT OPTIMAL (V3.8 Patch)
+      this.syncPromptAnalysisAspectRatioToResults();
+
       this.showToast('Analisis prompt selesai!');
     } catch (err) {
       this.showToast(`Gagal menganalisis: ${err.message}`, 'error');
@@ -381,6 +401,9 @@ class App {
     this.currentPrompt = '';
     this.uploadedImage = null;
     this.selectedAspectRatio = 'auto';
+    this.promptAnalysisAspectRatio = 'auto';
+    this.promptAnalysisCustomAspectRatio = '';
+    this.promptAnalysisAspectRatioError = null;
     this.twoWorldsManualLocks = {
       gender: false,
       age: false,
@@ -407,6 +430,7 @@ class App {
     this.currentPrompt = '';
     this.uploadedImage = null;
     this.selectedAspectRatio = 'auto';
+    this.promptAnalysisAspectRatioError = null;
     this.twoWorldsManualLocks = {
       gender: false,
       age: false,
@@ -552,6 +576,88 @@ class App {
       this.showToast(`📐 Rasio Aspek: Otomatis (Asli: ${effectiveRatio})`);
     } else {
       this.showToast(`📐 Rasio Aspek Target: ${ratio} (Proporsi subjek dipertahankan)`);
+    }
+    this.render();
+  }
+
+  /**
+   * Menyinkronkan Rasio Aspek Terpilih ke PROMPT OPTIMAL pada Tab Analisa Prompt (V3.8 Patch)
+   * Mendukung instant sync tanpa harus menjalankan analisis ulang.
+   */
+  syncPromptAnalysisAspectRatioToResults() {
+    if (!this.analysisResult) return;
+
+    let targetRatio = null;
+    if (this.promptAnalysisAspectRatio === 'custom') {
+      const val = validateCustomAspectRatio(this.promptAnalysisCustomAspectRatio);
+      if (val.valid) {
+        targetRatio = val.normalized;
+      } else {
+        return;
+      }
+    } else if (this.promptAnalysisAspectRatio === 'auto') {
+      // Pertahankan rasio yang disebutkan dalam prompt asli jika ada
+      const sourcePrompt = this.currentPrompt || '';
+      targetRatio = detectSourceAspectRatio({ sourceType: 'CUSTOM_PROMPT', basePrompt: sourcePrompt });
+    } else {
+      targetRatio = this.promptAnalysisAspectRatio;
+    }
+
+    if (this.analysisResult.optimalPrompt) {
+      this.analysisResult.optimalPrompt = applyAspectRatioToPrompt(this.analysisResult.optimalPrompt, targetRatio);
+    }
+    if (this.analysisResult.generatedPrompt) {
+      this.analysisResult.generatedPrompt = applyAspectRatioToPrompt(this.analysisResult.generatedPrompt, targetRatio);
+    }
+  }
+
+  /**
+   * Menangani perubahan pilihan rasio pada tab Analisa Prompt (V3.8 Patch)
+   */
+  handlePromptAnalysisAspectRatioChange(ratio) {
+    this.promptAnalysisAspectRatio = ratio;
+    this.promptAnalysisAspectRatioError = null;
+
+    if (ratio === 'custom') {
+      if (this.promptAnalysisCustomAspectRatio) {
+        const val = validateCustomAspectRatio(this.promptAnalysisCustomAspectRatio);
+        if (!val.valid) {
+          this.promptAnalysisAspectRatioError = val.error;
+        }
+      }
+    }
+
+    // Instant sync: Jika PROMPT OPTIMAL sudah ada, perbarui secara langsung
+    if (this.analysisResult && (this.analysisResult.optimalPrompt || this.analysisResult.generatedPrompt)) {
+      this.syncPromptAnalysisAspectRatioToResults();
+    }
+
+    if (ratio === 'auto') {
+      this.showToast('📐 Rasio: Otomatis (Ikuti Prompt)');
+    } else if (ratio === 'custom') {
+      this.showToast('📐 Rasio: Bebas / Custom (Masukkan W:H)');
+    } else {
+      this.showToast(`📐 Rasio Hasil Generate: ${ratio}`);
+    }
+
+    this.render();
+  }
+
+  /**
+   * Menangani perubahan input rasio kustom pada tab Analisa Prompt (V3.8 Patch)
+   */
+  handlePromptAnalysisCustomAspectRatioChange(val) {
+    this.promptAnalysisCustomAspectRatio = val;
+    if (this.promptAnalysisAspectRatio === 'custom') {
+      const check = validateCustomAspectRatio(val);
+      if (!check.valid) {
+        this.promptAnalysisAspectRatioError = check.error;
+      } else {
+        this.promptAnalysisAspectRatioError = null;
+        if (this.analysisResult && (this.analysisResult.optimalPrompt || this.analysisResult.generatedPrompt)) {
+          this.syncPromptAnalysisAspectRatioToResults();
+        }
+      }
     }
     this.render();
   }
@@ -753,6 +859,11 @@ class App {
       this.analysisResult.optimalPrompt = newInstalledList.length > 0
         ? `${baseText}. ${newInstalledList.join(' ')}`.trim()
         : baseText;
+    }
+
+    // Pertahankan rasio aspek aktif jika pada mode ANALISA_PROMPT
+    if (this.activeMode === 'ANALISA_PROMPT') {
+      this.syncPromptAnalysisAspectRatioToResults();
     }
 
     // Sync active and checked states on cards
@@ -1412,7 +1523,12 @@ class App {
         onAddShorthand: (code) => this.handleAddShorthand(code),
         onRemoveShorthand: (code) => this.handleRemoveShorthand(code),
         onToggleRecommendation: (code) => this.handleToggleRecommendation(code),
-        onResolveConflict: (id, act) => this.handleResolveConflict(id, act)
+        onResolveConflict: (id, act) => this.handleResolveConflict(id, act),
+        promptAnalysisAspectRatio: this.promptAnalysisAspectRatio,
+        promptAnalysisCustomAspectRatio: this.promptAnalysisCustomAspectRatio,
+        promptAnalysisAspectRatioError: this.promptAnalysisAspectRatioError,
+        onPromptAnalysisAspectRatioChange: (ratio) => this.handlePromptAnalysisAspectRatioChange(ratio),
+        onPromptAnalysisCustomAspectRatioChange: (val) => this.handlePromptAnalysisCustomAspectRatioChange(val)
       });
     } else if (this.activeTab === 'prompt-variations') {
       pageContent = renderPromptVariationPage({

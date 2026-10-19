@@ -59,7 +59,12 @@ export function renderAnalyzerPage({
   onResetGrading,
   batchImages = [],
   activeBatchIndex = 0,
-  onSelectBatchImage
+  onSelectBatchImage,
+  promptAnalysisAspectRatio = 'auto',
+  promptAnalysisCustomAspectRatio = '',
+  promptAnalysisAspectRatioError = null,
+  onPromptAnalysisAspectRatioChange,
+  onPromptAnalysisCustomAspectRatioChange
 }) {
   const {
     optimalPrompt = '',
@@ -127,7 +132,12 @@ export function renderAnalyzerPage({
     onResetGrading,
     batchImages,
     activeBatchIndex,
-    onSelectBatchImage
+    onSelectBatchImage,
+    promptAnalysisAspectRatio,
+    promptAnalysisCustomAspectRatio,
+    promptAnalysisAspectRatioError,
+    onPromptAnalysisAspectRatioChange,
+    onPromptAnalysisCustomAspectRatioChange
   });
 
   const conflictBannerComp = renderConflictBanner(conflicts, onResolveConflict, activeMode);

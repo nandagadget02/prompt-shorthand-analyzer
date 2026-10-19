@@ -42,7 +42,12 @@ export function renderPromptInput({
   onResetGrading,
   batchImages = [],
   activeBatchIndex = 0,
-  onSelectBatchImage
+  onSelectBatchImage,
+  promptAnalysisAspectRatio = 'auto',
+  promptAnalysisCustomAspectRatio = '',
+  promptAnalysisAspectRatioError = null,
+  onPromptAnalysisAspectRatioChange,
+  onPromptAnalysisCustomAspectRatioChange
 }) {
   const presets = renderPresetTests(onSelectPreset);
   const colourGradingPanelComp = activeMode === 'COLOUR_GRADING'
@@ -436,6 +441,76 @@ export function renderPromptInput({
         </div>
       ` : ''}
 
+      <!-- KONTROL RASIO HASIL GENERATE (V3.8 PATCH KHUSUS TAB ANALISA PROMPT) -->
+      ${activeMode === 'ANALISA_PROMPT' ? `
+        <div class="prompt-aspect-ratio-panel" id="panel-prompt-aspect-ratio" style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.45rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span style="font-size: 1rem;">📐</span>
+              <label for="select-prompt-aspect-ratio" style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; margin: 0; cursor: pointer;">
+                📐 Rasio Hasil Generate
+              </label>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span class="badge" id="badge-prompt-ratio-status" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; font-size: 0.725rem; font-weight: 700;">
+                ${promptAnalysisAspectRatio === 'auto'
+                  ? '🔄 Otomatis (Ikuti Prompt)'
+                  : (promptAnalysisAspectRatio === 'custom'
+                      ? `✏️ Custom: ${promptAnalysisCustomAspectRatio || 'Belum diisi'}`
+                      : `🎯 Target: ${promptAnalysisAspectRatio}`)}
+              </span>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;">
+            <div style="flex: 1; min-width: 220px;">
+              <select 
+                id="select-prompt-aspect-ratio" 
+                class="form-select"
+                style="width: 100%; box-sizing: border-box; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 0.45rem 0.7rem; color: #f1f5f9; font-size: 0.825rem; cursor: pointer;"
+              >
+                <option value="auto" ${promptAnalysisAspectRatio === 'auto' ? 'selected' : ''}>1. Otomatis (Ikuti Prompt)</option>
+                <option value="1:1" ${promptAnalysisAspectRatio === '1:1' ? 'selected' : ''}>2. 1:1 — Persegi</option>
+                <option value="3:2" ${promptAnalysisAspectRatio === '3:2' ? 'selected' : ''}>3. 3:2 — Landscape Foto</option>
+                <option value="2:3" ${promptAnalysisAspectRatio === '2:3' ? 'selected' : ''}>4. 2:3 — Portrait Foto</option>
+                <option value="4:3" ${promptAnalysisAspectRatio === '4:3' ? 'selected' : ''}>5. 4:3 — Landscape Klasik</option>
+                <option value="3:4" ${promptAnalysisAspectRatio === '3:4' ? 'selected' : ''}>6. 3:4 — Portrait Klasik</option>
+                <option value="16:9" ${promptAnalysisAspectRatio === '16:9' ? 'selected' : ''}>7. 16:9 — Widescreen</option>
+                <option value="9:16" ${promptAnalysisAspectRatio === '9:16' ? 'selected' : ''}>8. 9:16 — Vertikal / Mobile</option>
+                <option value="21:9" ${promptAnalysisAspectRatio === '21:9' ? 'selected' : ''}>9. 21:9 — Ultrawide</option>
+                <option value="custom" ${promptAnalysisAspectRatio === 'custom' ? 'selected' : ''}>10. Bebas / Custom</option>
+              </select>
+            </div>
+
+            ${promptAnalysisAspectRatio === 'custom' ? `
+              <div style="flex: 1; min-width: 200px; display: flex; gap: 0.4rem; align-items: center;" id="container-prompt-custom-ratio">
+                <input 
+                  type="text" 
+                  id="input-prompt-custom-aspect-ratio" 
+                  value="${promptAnalysisCustomAspectRatio || ''}" 
+                  placeholder="Format W:H (contoh: 5:4 atau 2.35:1)"
+                  style="flex: 1; background: rgba(0, 0, 0, 0.35); border: 1px solid ${promptAnalysisAspectRatioError ? '#ef4444' : 'rgba(56, 189, 248, 0.35)'}; border-radius: 6px; padding: 0.45rem 0.65rem; color: #f1f5f9; font-size: 0.8rem; font-family: var(--font-mono);"
+                />
+              </div>
+            ` : ''}
+          </div>
+
+          ${promptAnalysisAspectRatioError ? `
+            <div id="error-prompt-custom-ratio" style="color: #ef4444; font-size: 0.725rem; margin-top: 0.35rem; display: flex; align-items: center; gap: 0.25rem;">
+              <span>⚠️</span> <span>${promptAnalysisAspectRatioError}</span>
+            </div>
+          ` : ''}
+
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.35;">
+            ${promptAnalysisAspectRatio === 'auto'
+              ? '💡 Mempertahankan parameter <code>--ar</code> dari prompt asli jika ada. Jika prompt tidak menyebutkan rasio, prompt tetap alami tanpa memaksakan parameter rasio.'
+              : (promptAnalysisAspectRatio === 'custom'
+                  ? '💡 Masukkan perbandingan lebar:tinggi angka positif (contoh: <code>5:4</code> atau <code>2.35:1</code>). Otomatis diterapkan sebagai <code>--ar W:H</code> pada Prompt Optimal.'
+                  : `💡 Parameter rasio terpilih akan diterapkan sebagai <code>--ar ${promptAnalysisAspectRatio}</code> pada PROMPT OPTIMAL dan menggantikan rasio lama secara bersih.`)}
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Actions Bar -->
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <small style="color: var(--text-muted); font-size: 0.775rem;">
@@ -463,6 +538,26 @@ export function renderPromptInput({
       const analyzeBtn = container.querySelector('#btn-run-analysis');
       const clearBtn = container.querySelector('#btn-clear-prompt');
       const resetBtn = container.querySelector('#btn-reset-app');
+
+      // Prompt Analysis Aspect Ratio handlers (ANALISA_PROMPT)
+      const ratioSelect = container.querySelector('#select-prompt-aspect-ratio');
+      const customRatioInput = container.querySelector('#input-prompt-custom-aspect-ratio');
+
+      if (ratioSelect) {
+        ratioSelect.addEventListener('change', (e) => {
+          if (onPromptAnalysisAspectRatioChange) {
+            onPromptAnalysisAspectRatioChange(e.target.value);
+          }
+        });
+      }
+
+      if (customRatioInput) {
+        customRatioInput.addEventListener('input', (e) => {
+          if (onPromptAnalysisCustomAspectRatioChange) {
+            onPromptAnalysisCustomAspectRatioChange(e.target.value);
+          }
+        });
+      }
 
       // Mode Selector buttons
       container.querySelectorAll('.mode-tab-btn').forEach(btn => {

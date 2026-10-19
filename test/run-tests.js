@@ -15,6 +15,7 @@ import { StorageService } from '../src/services/storageService.js';
 import { runAutoFillerTests } from './shorthandAutoFiller.test.js';
 import { runV38FeatureTests } from './negativePromptAndBatchExport.test.js';
 import { runPromptVariationTests } from './promptVariations.test.js';
+import { runPromptAnalysisRatioTests } from './promptAnalysisRatio.test.js';
 import { runDictionaryCatalogIntegrationTests } from './dictionaryCatalogIntegration.test.js';
 import { renderConflictBanner } from '../src/components/ConflictBanner.js';
 import { renderExcludedShorthands } from '../src/components/ExcludedShorthands.js';
@@ -3426,6 +3427,10 @@ failed += v38Res.failed;
 const variationsRes = runPromptVariationTests();
 passed += variationsRes.passed;
 failed += variationsRes.failed;
+
+const ratioAnalysisRes = runPromptAnalysisRatioTests();
+passed += ratioAnalysisRes.passed;
+failed += ratioAnalysisRes.failed;
 
 await runDictionaryCatalogIntegrationTests(assert);
 
