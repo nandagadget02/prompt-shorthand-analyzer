@@ -6,16 +6,18 @@
  *    - PREVIOUS_ANALYSIS: Menggunakan context analisa aktif (optimalPrompt, shorthands, visionData).
  *    - NEW_IMAGE: Menggunakan gambar referensi baru mandiri tanpa merusak context lama.
  *    - CUSTOM_PROMPT: Menggunakan teks prompt biasa, prompt bershorthand, atau kombinasi keduanya.
- * 2. Beragam Pendekatan Kreatif:
- *    - Komposisi & Framing
- *    - Lingkungan & Latar Belakang
- *    - Suasana & Pencahayaan
- *    - Gaya Visual & Estetika
- *    - Konsep Kreatif & Storytelling
- *    - Fotografi Komersial & Stock Photography
- * 3. Instruction Lock (Perlindungan Semantik):
+ * 2. Enam Pendekatan Kreatif Independen:
+ *    - Komposisi & Framing (composition_framing)
+ *    - Lingkungan & Latar Belakang (environment_background)
+ *    - Suasana & Pencahayaan (lighting_mood)
+ *    - Gaya Visual & Estetika (visual_style)
+ *    - Konsep Kreatif & Storytelling (creative_concept)
+ *    - Fotografi Komersial & Stock Photography (commercial_stock)
+ * 3. Instruction Lock (Satu Sumber Status - Checkbox Driven):
  *    - Wajah (/facelock), Outfit (/outfitlock), Pose/Proporsi (/poselock, /bodyshape), Palet Warna (/colorpreserve).
  *    - Custom user locked instructions.
+ *    - Aturan Pose: Jika lock pose NONAKTIF (false), engine secara aktif menghasilkan variasi pose fisik subjek yang berbeda.
+ *    - Jika seluruh pendekatan nonaktif, engine menghasilkan variasi nuansa natural tanpa memaksakan pendekatan yang tidak dipilih.
  */
 
 export const VARIATION_APPROACHES = {
@@ -204,6 +206,97 @@ export const VARIATION_APPROACHES = {
 };
 
 /**
+ * Pustaka Pose Subjek Terencana (Digunakan secara aktif ketika Instruction Lock Pose TIDAK DICENTANG)
+ */
+export const SUBJECT_POSE_VARIATIONS = [
+  {
+    id: 'pose_seated_relaxed',
+    name: 'Duduk Santai Alami',
+    directive: 'seated in a relaxed natural posture, hands resting comfortably',
+    poseType: 'SEATED'
+  },
+  {
+    id: 'pose_standing_confident',
+    name: 'Berdiri Percaya Diri',
+    directive: 'standing tall with relaxed confident posture, natural weight shift',
+    poseType: 'STANDING'
+  },
+  {
+    id: 'pose_walking_candid',
+    name: 'Melangkah Dinamis (Candid)',
+    directive: 'captured mid-stride in natural walking motion, spontaneous candid energy',
+    poseType: 'WALKING'
+  },
+  {
+    id: 'pose_leaning_casual',
+    name: 'Bersandar Santai',
+    directive: 'casually leaning against a supportive architectural surface, relaxed expression',
+    poseType: 'LEANING'
+  },
+  {
+    id: 'pose_three_quarter_turn',
+    name: 'Menoleh Tiga Perempat',
+    directive: 'standing in a graceful three-quarter turned profile, gently glancing back toward camera',
+    poseType: 'TURNED_PROFILE'
+  },
+  {
+    id: 'pose_seated_low',
+    name: 'Duduk Santai Rendah',
+    directive: 'seated low with relaxed arms draped comfortably in an intimate grounding posture',
+    poseType: 'LOW_SEATED'
+  },
+  {
+    id: 'pose_expressive_gesture',
+    name: 'Gestur Tangan Ekspresif',
+    directive: 'dynamic posture with hands gesturing expressively and naturally in conversation',
+    poseType: 'EXPRESSIVE_GESTURE'
+  },
+  {
+    id: 'pose_arms_crossed_poised',
+    name: 'Berdiri Anggun Berwibawa',
+    directive: 'poised upright stance with arms loosely folded in front, calm poised presence',
+    poseType: 'POISED_STANDING'
+  }
+];
+
+/**
+ * Modifier Nuansa Alami (Digunakan HANYA ketika SELURUH pendekatan kreatif nonaktif)
+ * Memastikan variasi tetap dihasilkan tanpa memaksakan perubahan latar, gaya, lighting, atau kamera yang tidak dipilih.
+ */
+export const NEUTRAL_NUANCE_MODIFIERS = [
+  {
+    name: 'Natural Depth & Micro-Detail',
+    directive: 'pristine optical micro-texture rendering, natural fine surface depth, truthful tonal fidelity',
+    approachId: 'neutral_nuance',
+    approachLabel: 'Nuansa Alami'
+  },
+  {
+    name: 'Subtle Expressive Nuance',
+    directive: 'intimate authentic expression clarity, lifelike organic textures, refined visual balance',
+    approachId: 'neutral_nuance',
+    approachLabel: 'Nuansa Alami'
+  },
+  {
+    name: 'Clean Organic Definition',
+    directive: 'sharp clean subject focus, true-to-life organic materials definition, balanced natural presence',
+    approachId: 'neutral_nuance',
+    approachLabel: 'Nuansa Alami'
+  },
+  {
+    name: 'Refined Harmonic Polish',
+    directive: 'harmonious natural tonality, pristine fine edge separation, balanced organic realism',
+    approachId: 'neutral_nuance',
+    approachLabel: 'Nuansa Alami'
+  },
+  {
+    name: 'Authentic Photographic Texture',
+    directive: 'unfiltered true-to-life photographic texture, natural highlight gradation, crisp tactile detail',
+    approachId: 'neutral_nuance',
+    approachLabel: 'Nuansa Alami'
+  }
+];
+
+/**
  * Ekstrak seluruh token shorthand (yang diawali '/') dari sebuah teks
  */
 export function extractShorthandTokens(text = '') {
@@ -214,23 +307,22 @@ export function extractShorthandTokens(text = '') {
 
 /**
  * Deteksi elemen penguncian yang aktif pada prompt
+ * PRINSIP SATU SUMBER STATUS: Status checkbox (manualLocks) adalah penentu mutlak!
+ * - checked = true  -> lock AKTIF
+ * - checked = false -> lock NONAKTIF (tidak boleh dipaksakan oleh template/preset/token asal)
  */
 export function detectInstructionLocks(text = '', installedShorthands = [], manualLocks = {}) {
-  const combinedTokens = new Set([
-    ...extractShorthandTokens(text),
-    ...(Array.isArray(installedShorthands) ? installedShorthands.map(s => s.toLowerCase()) : [])
-  ]);
-
-  const lockFacelock = combinedTokens.has('/facelock') || Boolean(manualLocks.face);
-  const lockOutfit = combinedTokens.has('/outfitlock') || Boolean(manualLocks.outfit);
-  const lockPose = combinedTokens.has('/poselock') || combinedTokens.has('/bodyshape') || Boolean(manualLocks.pose);
-  const lockColor = combinedTokens.has('/colorpreserve') || Boolean(manualLocks.color);
+  // Checkbox status adalah SATU-SATUNYA penentu apakah lock ini aktif secara eksplisit
+  const lockFacelock = Boolean(manualLocks.face);
+  const lockOutfit = Boolean(manualLocks.outfit);
+  const lockPose = Boolean(manualLocks.pose);
+  const lockColor = Boolean(manualLocks.color);
   const customLock = (manualLocks.custom || '').trim();
 
   const activeLocks = [];
   if (lockFacelock) activeLocks.push({ type: 'face', label: 'Identitas Wajah (/facelock)', token: '/facelock' });
   if (lockOutfit) activeLocks.push({ type: 'outfit', label: 'Pakaian & Aksesori (/outfitlock)', token: '/outfitlock' });
-  if (lockPose) activeLocks.push({ type: 'pose', label: 'Pose & Proporsi Tubuh (/poselock, /bodyshape)', token: '/poselock' });
+  if (lockPose) activeLocks.push({ type: 'pose', label: 'Pose & Proporsi Tubuh (/poselock)', token: '/poselock' });
   if (lockColor) activeLocks.push({ type: 'color', label: 'Palet Warna Dominan (/colorpreserve)', token: '/colorpreserve' });
   if (customLock) activeLocks.push({ type: 'custom', label: `Instruksi Kustom: "${customLock}"`, token: customLock });
 
@@ -246,39 +338,73 @@ export function detectInstructionLocks(text = '', installedShorthands = [], manu
 }
 
 /**
- * Memastikan bahwa elemen yang dikunci tidak hilang atau terhapus dari teks variasi
+ * Memastikan bahwa elemen yang dikunci ditegakkan, dan elemen yang TIDAK dikunci DIBERSIHKAN dari lock otomatis
  */
 export function enforceInstructionLocks(variedPrompt = '', originalPrompt = '', locks = {}) {
   let result = variedPrompt.trim();
   const tokensInResult = new Set(extractShorthandTokens(result));
 
-  // 1. Pertahankan token shorthand pengunci
-  if (locks.lockFacelock && !tokensInResult.has('/facelock')) {
-    result = `${result}, /facelock`;
-  }
-  if (locks.lockOutfit && !tokensInResult.has('/outfitlock')) {
-    result = `${result}, /outfitlock`;
-  }
-  if (locks.lockPose) {
+  // 1. POSE LOCK RULE:
+  if (!locks.lockPose) {
+    // Jika lockPose NONAKTIF, bersihkan token pengunci pose/bodyshape dari prompt hasil
+    result = result.replace(/(?:,\s*)?\/(?:poselock|bodyshape)\b/gi, '').trim();
+    tokensInResult.delete('/poselock');
+    tokensInResult.delete('/bodyshape');
+  } else {
+    // Jika lockPose AKTIF, tegakkan keberadaan /poselock
     if (!tokensInResult.has('/poselock') && !tokensInResult.has('/bodyshape')) {
       result = `${result}, /poselock`;
+      tokensInResult.add('/poselock');
     }
   }
-  if (locks.lockColor && !tokensInResult.has('/colorpreserve')) {
-    result = `${result}, /colorpreserve`;
+
+  // 2. OUTFIT LOCK RULE:
+  if (!locks.lockOutfit) {
+    result = result.replace(/(?:,\s*)?\/outfitlock\b/gi, '').trim();
+    tokensInResult.delete('/outfitlock');
+  } else {
+    if (!tokensInResult.has('/outfitlock')) {
+      result = `${result}, /outfitlock`;
+      tokensInResult.add('/outfitlock');
+    }
   }
 
-  // 2. Pertahankan instruksi teks kustom jika ada
+  // 3. COLOR PRESERVE RULE:
+  if (!locks.lockColor) {
+    result = result.replace(/(?:,\s*)?\/colorpreserve\b/gi, '').trim();
+    tokensInResult.delete('/colorpreserve');
+  } else {
+    if (!tokensInResult.has('/colorpreserve')) {
+      result = `${result}, /colorpreserve`;
+      tokensInResult.add('/colorpreserve');
+    }
+  }
+
+  // 4. FACE LOCK RULE:
+  if (locks.lockFacelock) {
+    if (!tokensInResult.has('/facelock')) {
+      result = `${result}, /facelock`;
+      tokensInResult.add('/facelock');
+    }
+  }
+
+  // 5. CUSTOM LOCK INSTRUCTION:
   if (locks.customLock && !result.toLowerCase().includes(locks.customLock.toLowerCase())) {
     result = `${result}, preserving ${locks.customLock}`;
   }
+
+  // Bersihkan koma dobel atau koma di ujung string
+  result = result.replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim();
 
   return result;
 }
 
 /**
  * Menghasilkan kumpulan ide variasi secara deterministik (Heuristic Engine)
- * Sangat cepat, bebas crash, dan bekerja offline tanpa ketergantungan API eksternal.
+ * - Menerapkan filter pendekatan kreatif strictly berdasarkan checkbox yang dicentang.
+ * - Jika tidak ada pendekatan yang dicentang, gunakan NEUTRAL_NUANCE_MODIFIERS tanpa memaksakan pendekatan tak dipilih.
+ * - Jika Pose Lock NONAKTIF, secara aktif merencanakan variasi pose yang berbeda untuk setiap ide variasi.
+ * - Jika Pose Lock AKTIF, pertahankan pose asal dan tegakkan /poselock.
  */
 export function generateVariationsHeuristic({
   basePrompt = '',
@@ -290,56 +416,91 @@ export function generateVariationsHeuristic({
   const cleanBase = (basePrompt || '').trim() || 'A beautiful subject in natural setting';
   const effectiveCount = Math.max(1, Math.min(10, parseInt(count, 10) || 5));
 
-  // Tentukan locks
+  // Tentukan locks strictly berdasarkan manual checkbox status
   const locks = detectInstructionLocks(cleanBase, installedShorthands, lockedConfig);
 
-  // Kumpulkan modifier dari pendekatan yang dipilih pengguna
-  const validApproaches = selectedApproaches && selectedApproaches.length > 0
-    ? selectedApproaches
-    : Object.keys(VARIATION_APPROACHES);
-
+  // Kumpulkan modifier strictly berdasarkan pendekatan yang dipilih pengguna
   const candidateModifiers = [];
-  for (const appKey of validApproaches) {
-    const approachData = VARIATION_APPROACHES[appKey.toUpperCase()] || VARIATION_APPROACHES[appKey];
-    if (approachData && Array.isArray(approachData.modifiers)) {
-      approachData.modifiers.forEach(mod => {
-        candidateModifiers.push({
-          ...mod,
-          approachId: approachData.id,
-          approachLabel: approachData.label
+  const approachesList = Array.isArray(selectedApproaches) ? selectedApproaches : [];
+
+  if (approachesList.length === 0) {
+    // ATURAN MUTLAK: Jika semua opsi nonaktif, JANGAN paksakan pendekatan kreatif yang tidak dipilih!
+    // Gunakan modifier nuansa netral:
+    NEUTRAL_NUANCE_MODIFIERS.forEach(mod => {
+      candidateModifiers.push({ ...mod });
+    });
+  } else {
+    // Kumpulkan HANYA dari pendekatan yang dicentang
+    for (const appKey of approachesList) {
+      const approachData = VARIATION_APPROACHES[appKey.toUpperCase()] || VARIATION_APPROACHES[appKey];
+      if (approachData && Array.isArray(approachData.modifiers)) {
+        approachData.modifiers.forEach(mod => {
+          candidateModifiers.push({
+            ...mod,
+            approachId: approachData.id,
+            approachLabel: approachData.label
+          });
         });
-      });
+      }
     }
   }
 
-  // Jika candidateModifiers kosong, ambil semua
+  // Fallback pengaman jika array tetap kosong
   if (candidateModifiers.length === 0) {
-    Object.values(VARIATION_APPROACHES).forEach(app => {
-      app.modifiers.forEach(mod => {
-        candidateModifiers.push({
-          ...mod,
-          approachId: app.id,
-          approachLabel: app.label
-        });
-      });
+    NEUTRAL_NUANCE_MODIFIERS.forEach(mod => {
+      candidateModifiers.push({ ...mod });
     });
   }
 
-  // Ekstrak shorthand dasar yang bukan variasi spesifik
-  const baseShorthands = extractShorthandTokens(cleanBase);
+  // Ekstrak shorthand dasar dari basePrompt
+  let baseShorthands = extractShorthandTokens(cleanBase);
 
-  // Bersihkan basePrompt dari shorthand yang ada di akhir untuk peracikan kalimat yang bersih
-  const baseWithoutTrailingTokens = cleanBase.replace(/(?:,\s*)?\/[a-zA-Z0-9_-]+/g, '').trim();
+  // Jika suatu lock NONAKTIF, bersihkan token lock tersebut dari baseShorthands
+  if (!locks.lockPose) {
+    baseShorthands = baseShorthands.filter(s => s !== '/poselock' && s !== '/bodyshape');
+  }
+  if (!locks.lockOutfit) {
+    baseShorthands = baseShorthands.filter(s => s !== '/outfitlock');
+  }
+  if (!locks.lockColor) {
+    baseShorthands = baseShorthands.filter(s => s !== '/colorpreserve');
+  }
+
+  // Bersihkan basePrompt dari token shorthand di ujung untuk peracikan kalimat bersih
+  let baseTextClean = cleanBase.replace(/(?:,\s*)?\/[a-zA-Z0-9_-]+/g, '').trim();
+
+  // Jika pose tidak dikunci, hapus pula frasa pose lama yang kaku dari baseText agar pose baru tidak bertentangan
+  if (!locks.lockPose) {
+    baseTextClean = baseTextClean.replace(/\b(standing|seated|sitting|leaning|walking|posing)\s+(?:in|on|with|against)\s+[^,.]+/gi, '').trim();
+    baseTextClean = baseTextClean.replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim();
+  }
 
   const variations = [];
   for (let i = 0; i < effectiveCount; i++) {
     const modifierIndex = i % candidateModifiers.length;
     const modifier = candidateModifiers[modifierIndex];
 
-    // Buat kalimat variasi
-    let variedText = `${baseWithoutTrailingTokens}, ${modifier.directive}`;
+    // Tentukan Variasi Pose Subjek (JIKA POSE TIDAK DIKUNCI)
+    let poseDirective = '';
+    let poseName = '';
+    if (!locks.lockPose) {
+      const poseItem = SUBJECT_POSE_VARIATIONS[i % SUBJECT_POSE_VARIATIONS.length];
+      poseDirective = poseItem.directive;
+      poseName = poseItem.name;
+    }
 
-    // Gabungkan shorthand: Shorthand modifier + Shorthand dasar + Shorthand kunci
+    // Bangun teks variasi: Base + Pose (jika ada) + Directive Pendekatan
+    const segments = [baseTextClean];
+    if (poseDirective) {
+      segments.push(poseDirective);
+    }
+    if (modifier.directive) {
+      segments.push(modifier.directive);
+    }
+
+    let variedText = segments.filter(Boolean).join(', ');
+
+    // Gabungkan shorthand: Shorthand dasar yang valid + Shorthand modifier
     const allTokens = new Set([
       ...baseShorthands,
       ...(modifier.shorthands || [])
@@ -350,20 +511,46 @@ export function generateVariationsHeuristic({
       variedText = `${variedText}, ${Array.from(allTokens).join(', ')}`;
     }
 
-    // Terapkan penegakan locks
+    // Terapkan penegakan locks (sekaligus membersihkan lock yang false)
     const finalPrompt = enforceInstructionLocks(variedText, cleanBase, locks);
     const finalShorthands = extractShorthandTokens(finalPrompt);
 
+    // Judul yang deskriptif dan mencerminkan perbedaan semantik nyata
+    let titleParts = [`Variasi ${i + 1}`];
+    if (modifier.name && modifier.approachId !== 'neutral_nuance') {
+      titleParts.push(modifier.name);
+    }
+    if (poseName && !locks.lockPose) {
+      titleParts.push(poseName);
+    }
+    if (titleParts.length === 1) {
+      titleParts.push(modifier.name || 'Nuansa Alami');
+    }
+
+    const title = titleParts.join(' • ');
+
+    // Keterangan penjelasan
+    let explanation = `Pendekatan ${modifier.approachLabel.toLowerCase()}`;
+    if (!locks.lockPose && poseName) {
+      explanation += ` dengan variasi pose fisik: ${poseName.toLowerCase()}`;
+    }
+    if (locks.activeLocks.length > 0) {
+      explanation += ` sambil melindungi: ${locks.activeLocks.map(l => l.label).join(', ')}`;
+    } else {
+      explanation += ` tanpa pembatasan penguncian kaku.`;
+    }
+
     variations.push({
       id: `var_${i + 1}`,
-      title: `Variasi ${i + 1}: ${modifier.name}`,
+      title,
       approachId: modifier.approachId,
       approachLabel: modifier.approachLabel,
       prompt: finalPrompt,
       basePrompt: cleanBase,
       shorthands: finalShorthands,
+      poseApplied: !locks.lockPose ? poseName : 'Pose Terkunci',
       lockedElementsApplied: locks.activeLocks.map(l => l.label),
-      explanation: `Eksplorasi ${modifier.approachLabel.toLowerCase()} dengan penekanan pada ${modifier.name.toLowerCase()} sambil menjaga konsistensi elemen inti.`
+      explanation
     });
   }
 
@@ -371,6 +558,7 @@ export function generateVariationsHeuristic({
     sourceBasePrompt: cleanBase,
     count: variations.length,
     locks,
+    selectedApproaches: approachesList,
     variations
   };
 }

@@ -212,6 +212,57 @@ export function runPromptVariationTests() {
   assert(pageWithResults.html.includes('btn-optimize-variation'), 'Actions: Tombol Optimalkan Prompt tersedia');
   assert(pageWithResults.html.includes('btn-further-variation'), 'Actions: Tombol Variasi Lanjutan tersedia');
 
+  // 21. Checkbox Single Source of Truth: Pose Lock UNCHECKED (pose: false) with /bodyshape in base
+  const varsPoseUnlocked = generateVariationsHeuristic({
+    basePrompt: 'A female model in urban cafe /bodyshape /poselock',
+    count: 5,
+    lockedConfig: { pose: false }
+  });
+  assert(varsPoseUnlocked.locks.lockPose === false, 'Checkbox SSOT: Pose lock is strictly false when unchecked');
+  const noPoseTokens = varsPoseUnlocked.variations.every(v => !v.prompt.includes('/poselock') && !v.prompt.includes('/bodyshape'));
+  assert(noPoseTokens, 'Checkbox SSOT: /poselock and /bodyshape tokens are actively stripped when pose lock is unchecked');
+  const distinctPoses = new Set(varsPoseUnlocked.variations.map(v => v.poseApplied));
+  assert(distinctPoses.size > 1, 'Pose Diversity: Multiple distinct physical poses generated when pose lock is unchecked');
+  assert(!distinctPoses.has('Pose Terkunci'), 'Pose Diversity: No variations marked as "Pose Terkunci" when pose lock is unchecked');
+
+  // 22. Checkbox Single Source of Truth: Pose Lock CHECKED (pose: true)
+  const varsPoseLocked = generateVariationsHeuristic({
+    basePrompt: 'A female model in urban cafe',
+    count: 3,
+    lockedConfig: { pose: true }
+  });
+  assert(varsPoseLocked.locks.lockPose === true, 'Checkbox SSOT: Pose lock is strictly true when checked');
+  assert(varsPoseLocked.variations.every(v => v.prompt.includes('/poselock')), 'Checkbox SSOT: /poselock token is injected when pose lock is checked');
+  assert(varsPoseLocked.variations.every(v => v.poseApplied === 'Pose Terkunci'), 'Checkbox SSOT: All variations marked as "Pose Terkunci" when checked');
+
+  // 23. Checkbox Single Source of Truth: All Approaches Unchecked (selectedApproaches: [])
+  const varsEmptyApproaches = generateVariationsHeuristic({
+    basePrompt: 'Minimalist ceramic vase on wooden table',
+    count: 3,
+    selectedApproaches: []
+  });
+  const allNeutral = varsEmptyApproaches.variations.every(v => v.approachId === 'neutral_nuance');
+  assert(allNeutral, 'Approach Filter: Empty approaches uses neutral nuance instead of forcing unselected approaches');
+
+  // 24. Checkbox Single Source of Truth: Strip outfitlock & colorpreserve when unchecked
+  const varsLocksStripped = generateVariationsHeuristic({
+    basePrompt: 'Person in streetwear /outfitlock /colorpreserve',
+    count: 3,
+    lockedConfig: { outfit: false, color: false }
+  });
+  const noOutfitOrColor = varsLocksStripped.variations.every(v => !v.prompt.includes('/outfitlock') && !v.prompt.includes('/colorpreserve'));
+  assert(noOutfitOrColor, 'Checkbox SSOT: /outfitlock and /colorpreserve are stripped when unchecked');
+
+  // 25. Checkbox Single Source of Truth: Enforce outfitlock & colorpreserve when checked
+  const varsLocksEnforced = generateVariationsHeuristic({
+    basePrompt: 'Person in streetwear',
+    count: 3,
+    lockedConfig: { outfit: true, color: true }
+  });
+  const hasOutfitAndColor = varsLocksEnforced.variations.every(v => v.prompt.includes('/outfitlock') && v.prompt.includes('/colorpreserve'));
+  assert(hasOutfitAndColor, 'Checkbox SSOT: /outfitlock and /colorpreserve are enforced when checked');
+
   console.log(`\nHASIL TAB IDE VARIASI TESTS: ${passed} PASSED, ${failed} FAILED\n`);
   return { passed, failed };
 }
+

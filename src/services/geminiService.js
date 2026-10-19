@@ -29,7 +29,7 @@ import {
   formatPlacementProfileText,
   formatFullBackgroundReportText
 } from '../lib/backgroundAnalyzer.js';
-import { generateVariationsHeuristic } from '../lib/promptVariationEngine.js';
+import { generateVariationsHeuristic, enforceInstructionLocks } from '../lib/promptVariationEngine.js';
 
 export const GEMINI_STATUS = {
   CONNECTED: 'CONNECTED',     // 🟢 Tersambung
@@ -3236,36 +3236,57 @@ Format respons HANYA berupa JSON valid:
       const cleanModel = model.replace(/^models\//, '');
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(key)}`;
 
-      const approachesList = selectedApproaches.join(', ');
-      const locksDescription = heuristicResult.locks.activeLocks.map(l => l.label).join('; ') || 'Tidak ada elemen yang dikunci';
+      const allPossibleApproaches = [
+        { id: 'composition_framing', label: 'Komposisi & Framing' },
+        { id: 'environment_background', label: 'Lingkungan & Latar' },
+        { id: 'lighting_mood', label: 'Suasana & Pencahayaan' },
+        { id: 'visual_style', label: 'Gaya Visual & Estetika' },
+        { id: 'creative_concept', label: 'Konsep Kreatif & Storytelling' },
+        { id: 'commercial_stock', label: 'Fotografi Komersial & Stock' }
+      ];
+
+      const activeApproaches = allPossibleApproaches.filter(a => (selectedApproaches || []).includes(a.id));
+      const disabledApproaches = allPossibleApproaches.filter(a => !(selectedApproaches || []).includes(a.id));
+
+      const activeApproachesStr = activeApproaches.length > 0
+        ? activeApproaches.map(a => a.label).join(', ')
+        : 'SEMUA PENDEKATAN NONAKTIF (Hasilkan variasi nuansa natural dari prompt dasar TANPA memaksakan perubahan latar, gaya, lighting, atau kamera)';
+
+      const disabledApproachesStr = disabledApproaches.length > 0
+        ? `JANGAN MEMAKSAKAN perubahan pada dimensi berikut karena opsi dinonaktifkan: ${disabledApproaches.map(a => a.label).join(', ')}.`
+        : '';
+
+      const poseRuleStr = heuristicResult.locks.lockPose
+        ? 'POSE TERKUNCI: Wajib pertahankan pose dan proporsi tubuh asli secara persis, sertakan token /poselock.'
+        : 'POSE TIDAK DIKUNCI: Pengguna mengizinkan variasi pose. Anda WAJIB memvariasikan pose dan posisi fisik subjek di setiap variasi (misal: sitting, standing confident, walking mid-stride, casual leaning, turned profile). JANGAN menyertakan /poselock atau /bodyshape!';
 
       const promptText = `
 Anda adalah AI Creative Director untuk Prompt Shorthand Analyzer V3.8.
-Tugas Anda: Buat ${count} variasi prompt kreatif yang beragam berdasarkan basis berikut:
+Tugas Anda: Buat ${count} variasi prompt kreatif yang beragam dengan perbedaan semantik yang nyata.
 
 PROMPT DASAR / KONTEKS:
 "${basePrompt}"
 
-PENDEKATAN VARIASI YANG DIINGINKAN:
-${approachesList}
+ATURAN PENDEKATAN KREATIF (CHECKBOX DRIVEN):
+- PENDEKATAN YANG AKTIF DITERAPKAN: ${activeApproachesStr}
+- ${disabledApproachesStr}
 
 ATURAN PERLINDUNGAN INSTRUKSI MUTLAK (INSTRUCTION LOCK):
-Elemen berikut WAJIB dipertahankan dan TIDAK BOLEH diubah/dihapus pada SETIAP variasi:
-${locksDescription}
+${heuristicResult.locks.activeLocks.length > 0 ? heuristicResult.locks.activeLocks.map(l => `- WAJIB DIPERTAHANKAN: ${l.label}`).join('\n') : '- Tidak ada elemen yang dikunci.'}
 
-SHORTHAND TOKENS:
-Pertahankan seluruh shorthand kunci seperti /facelock, /outfitlock, /poselock, /bodyshape jika ada, dan gunakan shorthand yang relevan dari Prompt Shorthand Analyzer.
+ATURAN POSE SUBJEK:
+${poseRuleStr}
 
 KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN SKEMA:
 {
   "variations": [
     {
       "id": "var_1",
-      "title": "Nama Ringkas Variasi (contoh: Variasi 1: Golden Hour Horizon)",
+      "title": "Nama Ringkas Variasi (contoh: Variasi 1: Golden Hour Horizon • Duduk Santai)",
       "approachId": "pendekatan_id",
       "approachLabel": "Label Pendekatan",
       "prompt": "Prompt variasi lengkap berbahasa Inggris siap generate",
-      "explanation": "Penjelasan singkat perubahan visual dan estetika"
+      "explanation": "Penjelasan singkat perbedaan visual, pose, dan estetika yang diterapkan"
     }
   ]
 }
@@ -3303,15 +3324,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
 
       if (parsed && Array.isArray(parsed.variations) && parsed.variations.length > 0) {
         const enriched = parsed.variations.map((v, i) => {
+          const enforcedPrompt = enforceInstructionLocks(v.prompt || '', basePrompt, heuristicResult.locks);
           const lockedApplied = heuristicResult.locks.activeLocks.map(l => l.label);
           return {
             id: v.id || `var_${i + 1}`,
             title: v.title || `Variasi ${i + 1}`,
             approachId: v.approachId || 'creative_concept',
             approachLabel: v.approachLabel || 'Konsep Kreatif',
-            prompt: v.prompt || '',
+            prompt: enforcedPrompt,
             basePrompt: basePrompt,
-            shorthands: (v.prompt || '').match(/\/[a-zA-Z0-9_-]+/g) || [],
+            shorthands: (enforcedPrompt || '').match(/\/[a-zA-Z0-9_-]+/g) || [],
             lockedElementsApplied: lockedApplied,
             explanation: v.explanation || 'Eksplorasi variasi kreatif berbasis AI.'
           };
