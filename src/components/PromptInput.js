@@ -446,18 +446,18 @@ export function renderPromptInput({
         <div class="prompt-aspect-ratio-panel" id="panel-prompt-aspect-ratio" style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem;">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.45rem;">
             <div style="display: flex; align-items: center; gap: 0.4rem;">
-              <span style="font-size: 1rem;">📐</span>
+              <span style="font-size: 0.95rem;">📐</span>
               <label for="select-prompt-aspect-ratio" style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; margin: 0; cursor: pointer;">
-                📐 Rasio Hasil Generate
+                Rasio Hasil Generate
               </label>
             </div>
             <div style="display: flex; align-items: center; gap: 0.4rem;">
               <span class="badge" id="badge-prompt-ratio-status" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; font-size: 0.725rem; font-weight: 700;">
                 ${promptAnalysisAspectRatio === 'auto'
-                  ? '🔄 Otomatis (Ikuti Prompt)'
+                  ? 'Otomatis'
                   : (promptAnalysisAspectRatio === 'custom'
-                      ? `✏️ Custom: ${promptAnalysisCustomAspectRatio || 'Belum diisi'}`
-                      : `🎯 Target: ${promptAnalysisAspectRatio}`)}
+                      ? (promptAnalysisCustomAspectRatio ? `Custom: ${promptAnalysisCustomAspectRatio}` : 'Custom')
+                      : `Target: ${promptAnalysisAspectRatio}`)}
               </span>
             </div>
           </div>
@@ -469,16 +469,16 @@ export function renderPromptInput({
                 class="form-select"
                 style="width: 100%; box-sizing: border-box; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 0.45rem 0.7rem; color: #f1f5f9; font-size: 0.825rem; cursor: pointer;"
               >
-                <option value="auto" ${promptAnalysisAspectRatio === 'auto' ? 'selected' : ''}>1. Otomatis (Ikuti Prompt)</option>
-                <option value="1:1" ${promptAnalysisAspectRatio === '1:1' ? 'selected' : ''}>2. 1:1 — Persegi</option>
-                <option value="3:2" ${promptAnalysisAspectRatio === '3:2' ? 'selected' : ''}>3. 3:2 — Landscape Foto</option>
-                <option value="2:3" ${promptAnalysisAspectRatio === '2:3' ? 'selected' : ''}>4. 2:3 — Portrait Foto</option>
-                <option value="4:3" ${promptAnalysisAspectRatio === '4:3' ? 'selected' : ''}>5. 4:3 — Landscape Klasik</option>
-                <option value="3:4" ${promptAnalysisAspectRatio === '3:4' ? 'selected' : ''}>6. 3:4 — Portrait Klasik</option>
-                <option value="16:9" ${promptAnalysisAspectRatio === '16:9' ? 'selected' : ''}>7. 16:9 — Widescreen</option>
-                <option value="9:16" ${promptAnalysisAspectRatio === '9:16' ? 'selected' : ''}>8. 9:16 — Vertikal / Mobile</option>
-                <option value="21:9" ${promptAnalysisAspectRatio === '21:9' ? 'selected' : ''}>9. 21:9 — Ultrawide</option>
-                <option value="custom" ${promptAnalysisAspectRatio === 'custom' ? 'selected' : ''}>10. Bebas / Custom</option>
+                <option value="auto" ${promptAnalysisAspectRatio === 'auto' ? 'selected' : ''}>Otomatis (Ikuti Prompt)</option>
+                <option value="1:1" ${promptAnalysisAspectRatio === '1:1' ? 'selected' : ''}>1:1 — Persegi</option>
+                <option value="3:2" ${promptAnalysisAspectRatio === '3:2' ? 'selected' : ''}>3:2 — Landscape Foto</option>
+                <option value="2:3" ${promptAnalysisAspectRatio === '2:3' ? 'selected' : ''}>2:3 — Portrait Foto</option>
+                <option value="4:3" ${promptAnalysisAspectRatio === '4:3' ? 'selected' : ''}>4:3 — Landscape Klasik</option>
+                <option value="3:4" ${promptAnalysisAspectRatio === '3:4' ? 'selected' : ''}>3:4 — Portrait Klasik</option>
+                <option value="16:9" ${promptAnalysisAspectRatio === '16:9' ? 'selected' : ''}>16:9 — Widescreen</option>
+                <option value="9:16" ${promptAnalysisAspectRatio === '9:16' ? 'selected' : ''}>9:16 — Vertikal / Mobile</option>
+                <option value="21:9" ${promptAnalysisAspectRatio === '21:9' ? 'selected' : ''}>21:9 — Ultrawide</option>
+                <option value="custom" ${promptAnalysisAspectRatio === 'custom' ? 'selected' : ''}>Bebas / Custom</option>
               </select>
             </div>
 

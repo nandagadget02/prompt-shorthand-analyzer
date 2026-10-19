@@ -50,17 +50,20 @@ export function runPromptAnalysisRatioTests() {
 
   assert(promptInputComp.html.includes('id="panel-prompt-aspect-ratio"'), 'UI: Panel kontrol rasio hasil generate ter-render pada mode ANALISA_PROMPT');
   assert(promptInputComp.html.includes('id="select-prompt-aspect-ratio"'), 'UI: Dropdown select rasio aspek tersedia');
-  assert(promptInputComp.html.includes('📐 Rasio Hasil Generate'), 'UI: Label kontrol "📐 Rasio Hasil Generate" ditampilkan');
-  assert(promptInputComp.html.includes('value="auto"'), 'UI: Pilihan 1 (Otomatis) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="1:1"'), 'UI: Pilihan 2 (1:1) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="3:2"'), 'UI: Pilihan 3 (3:2) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="2:3"'), 'UI: Pilihan 4 (2:3) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="4:3"'), 'UI: Pilihan 5 (4:3) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="3:4"'), 'UI: Pilihan 6 (3:4) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="16:9"'), 'UI: Pilihan 7 (16:9) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="9:16"'), 'UI: Pilihan 8 (9:16) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="21:9"'), 'UI: Pilihan 9 (21:9) tersedia dalam dropdown');
-  assert(promptInputComp.html.includes('value="custom"'), 'UI: Pilihan 10 (Bebas / Custom) tersedia dalam dropdown');
+  assert(promptInputComp.html.includes('Rasio Hasil Generate'), 'UI: Label kontrol "Rasio Hasil Generate" ditampilkan');
+  assert(!promptInputComp.html.includes('📐 Rasio Hasil Generate'), 'UI: Tidak ada duplikasi ikon pada teks label');
+  assert(promptInputComp.html.includes('>Otomatis (Ikuti Prompt)</option>'), 'UI: Pilihan Otomatis tersedia tanpa nomor urut');
+  assert(promptInputComp.html.includes('>1:1 — Persegi</option>'), 'UI: Pilihan 1:1 — Persegi tanpa nomor urut');
+  assert(promptInputComp.html.includes('>3:2 — Landscape Foto</option>'), 'UI: Pilihan 3:2 — Landscape Foto tanpa nomor urut');
+  assert(promptInputComp.html.includes('>2:3 — Portrait Foto</option>'), 'UI: Pilihan 2:3 — Portrait Foto tanpa nomor urut');
+  assert(promptInputComp.html.includes('>4:3 — Landscape Klasik</option>'), 'UI: Pilihan 4:3 — Landscape Klasik tanpa nomor urut');
+  assert(promptInputComp.html.includes('>3:4 — Portrait Klasik</option>'), 'UI: Pilihan 3:4 — Portrait Klasik tanpa nomor urut');
+  assert(promptInputComp.html.includes('>16:9 — Widescreen</option>'), 'UI: Pilihan 16:9 — Widescreen tanpa nomor urut');
+  assert(promptInputComp.html.includes('>9:16 — Vertikal / Mobile</option>'), 'UI: Pilihan 9:16 — Vertikal / Mobile tanpa nomor urut');
+  assert(promptInputComp.html.includes('>21:9 — Ultrawide</option>'), 'UI: Pilihan 21:9 — Ultrawide tanpa nomor urut');
+  assert(promptInputComp.html.includes('>Bebas / Custom</option>'), 'UI: Pilihan Bebas / Custom tanpa nomor urut');
+  const selectHtml = promptInputComp.html.match(/<select id="select-prompt-aspect-ratio"[\s\S]*?<\/select>/)?.[0] || '';
+  assert(!/>\s*\d+\.\s+/i.test(selectHtml), 'UI: Bebas dari seluruh nomor urut (1., 2., dst) di seluruh opsi');
 
   // UI saat mode lain (misal IMAGE_TO_PROMPT) tidak merender kontrol ini
   const otherModeComp = renderPromptInput({
@@ -213,7 +216,7 @@ export function runPromptAnalysisRatioTests() {
     }
   });
   assert(analyzerPageComp.html.includes('id="panel-prompt-aspect-ratio"'), 'AnalyzerPage: Panel rasio aspek ter-render dalam tampilan terintegrasi');
-  assert(analyzerPageComp.html.includes('🎯 Target: 16:9'), 'AnalyzerPage: Badge status target menampilkan 16:9');
+  assert(analyzerPageComp.html.includes('Target: 16:9'), 'AnalyzerPage: Badge status target menampilkan Target: 16:9 tanpa ikon');
 
   return { passed, failed };
 }
