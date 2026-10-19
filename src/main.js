@@ -131,6 +131,26 @@ class App {
       generationMeta: null
     };
 
+    // Prompt Optimizer State (V3.8)
+    this.promptOptimizerState = {
+      sourceType: 'OPTIMAL_PROMPT', // 'OPTIMAL_PROMPT' | 'MANUAL_PROMPT' | 'VARIATION_PROMPT'
+      manualPrompt: '',
+      selectedVariationIndex: 0,
+      mode: 'balanced', // 'balanced' | 'detail' | 'composition' | 'photorealism' | 'creative' | 'commercial_stock' | 'minimal_change'
+      versionCount: 3, // 1 | 3 | 5
+      lockedElements: {
+        face: true,
+        outfit: true,
+        pose: false,
+        color: false,
+        aspectRatio: true,
+        custom: ''
+      },
+      results: [],
+      isOptimizing: false,
+      comparingVersionIndex: null
+    };
+
     // Async init
     this.initRepository();
     this.initGeminiStatus();
@@ -1414,6 +1434,95 @@ class App {
     window.scrollTo({ top: 150, behavior: 'smooth' });
   }
 
+  handlePromptOptimizerStateChange(updates) {
+    if (!updates || typeof updates !== 'object') return;
+    this.promptOptimizerState = {
+      ...this.promptOptimizerState,
+      ...updates,
+      lockedElements: {
+        ...this.promptOptimizerState.lockedElements,
+        ...(updates.lockedElements || {})
+      }
+    };
+    this.render();
+  }
+
+  async handleRunPromptOptimization() {
+    const state = this.promptOptimizerState;
+    let basePrompt = '';
+
+    if (state.sourceType === 'OPTIMAL_PROMPT') {
+      basePrompt = (this.analysisResult?.optimalPrompt || this.analysisResult?.generatedPrompt || this.currentPrompt || '').trim();
+      if (!basePrompt) {
+        this.showToast('Belum ada Prompt Optimal dari hasil Analisis. Silakan lakukan Analisa Prompt terlebih dahulu atau pilih sumber Manual.', 'warning');
+        return;
+      }
+    } else if (state.sourceType === 'VARIATION_PROMPT') {
+      const vars = this.promptVariationsState?.generatedVariations || [];
+      const selected = vars[state.selectedVariationIndex] || vars[0];
+      basePrompt = (selected?.prompt || '').trim();
+      if (!basePrompt) {
+        this.showToast('Belum ada hasil variasi yang tersedia. Silakan hasilkan variasi di tab Ide Variasi Prompt atau pilih sumber Manual.', 'warning');
+        return;
+      }
+    } else {
+      // MANUAL_PROMPT
+      basePrompt = (state.manualPrompt || '').trim();
+      if (!basePrompt) {
+        this.showToast('Silakan ketik atau tempelkan prompt pada kolom manual terlebih dahulu.', 'warning');
+        return;
+      }
+    }
+
+    state.isOptimizing = true;
+    state.comparingVersionIndex = null;
+    this.render();
+
+    try {
+      const detectedRatio = this.uploadedImage?.detectedAspectRatio || (this.uploadedImage?.width && this.uploadedImage?.height ? `${this.uploadedImage.width}:${this.uploadedImage.height}` : null);
+      const res = await this.geminiService.optimizePrompt({
+        basePrompt,
+        mode: state.mode,
+        count: state.versionCount,
+        lockedConfig: state.lockedElements,
+        detectedRatio
+      });
+
+      state.results = res.results || [];
+      this.showToast(`Berhasil menghasilkan ${state.results.length} versi prompt teroptimasi!`);
+    } catch (err) {
+      console.error('Error running prompt optimization:', err);
+      this.showToast('Gagal mengoptimalkan prompt: ' + err.message, 'error');
+    } finally {
+      state.isOptimizing = false;
+      this.render();
+      const resultsEl = document.getElementById('optimizer-results-container');
+      if (resultsEl) resultsEl.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  handleSetAsMainPrompt(optimizedPrompt) {
+    if (!optimizedPrompt) return;
+    this.currentPrompt = optimizedPrompt;
+    if (this.analysisResult) {
+      this.analysisResult.optimalPrompt = optimizedPrompt;
+    }
+    this.showToast('⭐ Prompt hasil optimasi berhasil dijadikan Prompt Utama!');
+    this.render();
+  }
+
+  handleOptimizeAgain(optimizedPrompt) {
+    if (!optimizedPrompt) return;
+    this.promptOptimizerState.sourceType = 'MANUAL_PROMPT';
+    this.promptOptimizerState.manualPrompt = optimizedPrompt;
+    this.promptOptimizerState.results = [];
+    this.promptOptimizerState.comparingVersionIndex = null;
+    this.render();
+    this.showToast('Prompt dimasukkan ke kolom Input Manual. Silakan sesuaikan mode lalu klik Optimalkan Prompt.');
+    const inputCard = document.getElementById('card-input');
+    if (inputCard) inputCard.scrollIntoView({ behavior: 'smooth' });
+  }
+
   render() {
     const geminiStatusInfo = this.geminiService.getStatus();
 
@@ -1462,7 +1571,6 @@ class App {
         onModeChange: (mode) => {
           if (this.activeMode !== mode) {
             this.activeMode = mode;
-            this.analysisResult = this.geminiService.localEngine.getEmptyResult();
             this.render();
           }
         },
@@ -1528,7 +1636,15 @@ class App {
         promptAnalysisCustomAspectRatio: this.promptAnalysisCustomAspectRatio,
         promptAnalysisAspectRatioError: this.promptAnalysisAspectRatioError,
         onPromptAnalysisAspectRatioChange: (ratio) => this.handlePromptAnalysisAspectRatioChange(ratio),
-        onPromptAnalysisCustomAspectRatioChange: (val) => this.handlePromptAnalysisCustomAspectRatioChange(val)
+        onPromptAnalysisCustomAspectRatioChange: (val) => this.handlePromptAnalysisCustomAspectRatioChange(val),
+        promptOptimizerState: this.promptOptimizerState,
+        onPromptOptimizerStateChange: (updates) => this.handlePromptOptimizerStateChange(updates),
+        onRunPromptOptimization: () => this.handleRunPromptOptimization(),
+        onCopyOptimizedPrompt: (prompt) => this.handleCopyPrompt(prompt, '📋 Prompt teroptimasi berhasil disalin!'),
+        onSetAsMainPrompt: (prompt) => this.handleSetAsMainPrompt(prompt),
+        onOptimizeAgain: (prompt) => this.handleOptimizeAgain(prompt),
+        optimalPromptForOptimizer: this.analysisResult?.optimalPrompt || this.analysisResult?.generatedPrompt || this.currentPrompt || '',
+        variationListForOptimizer: this.promptVariationsState?.generatedVariations || []
       });
     } else if (this.activeTab === 'prompt-variations') {
       pageContent = renderPromptVariationPage({

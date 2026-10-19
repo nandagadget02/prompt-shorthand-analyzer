@@ -64,7 +64,15 @@ export function renderAnalyzerPage({
   promptAnalysisCustomAspectRatio = '',
   promptAnalysisAspectRatioError = null,
   onPromptAnalysisAspectRatioChange,
-  onPromptAnalysisCustomAspectRatioChange
+  onPromptAnalysisCustomAspectRatioChange,
+  promptOptimizerState = {},
+  onPromptOptimizerStateChange,
+  onRunPromptOptimization,
+  onCopyOptimizedPrompt,
+  onSetAsMainPrompt,
+  onOptimizeAgain,
+  optimalPromptForOptimizer = '',
+  variationListForOptimizer = []
 }) {
   const {
     optimalPrompt = '',
@@ -137,7 +145,15 @@ export function renderAnalyzerPage({
     promptAnalysisCustomAspectRatio,
     promptAnalysisAspectRatioError,
     onPromptAnalysisAspectRatioChange,
-    onPromptAnalysisCustomAspectRatioChange
+    onPromptAnalysisCustomAspectRatioChange,
+    promptOptimizerState,
+    onPromptOptimizerStateChange,
+    onRunPromptOptimization,
+    onCopyOptimizedPrompt,
+    onSetAsMainPrompt,
+    onOptimizeAgain,
+    optimalPromptForOptimizer,
+    variationListForOptimizer
   });
 
   const conflictBannerComp = renderConflictBanner(conflicts, onResolveConflict, activeMode);
@@ -177,6 +193,22 @@ export function renderAnalyzerPage({
   );
 
   const exclusionsComp = renderExcludedShorthands(exclusions, activeMode);
+
+  // =========================================================================
+  // CASE PROMPT OPTIMIZER (V3.8 PATCH)
+  // =========================================================================
+  if (activeMode === 'PROMPT_OPTIMIZER') {
+    return {
+      html: `
+        <div class="analyzer-stream-container">
+          ${promptInputComp.html}
+        </div>
+      `,
+      bindEvents(container) {
+        promptInputComp.bindEvents(container);
+      }
+    };
+  }
 
   // =========================================================================
   // CASE A-1: MODE ANALISA LATAR BELAKANG / BACKGROUND (MASTER PATCH V3.7)

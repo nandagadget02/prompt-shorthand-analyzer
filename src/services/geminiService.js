@@ -30,6 +30,14 @@ import {
   formatFullBackgroundReportText
 } from '../lib/backgroundAnalyzer.js';
 import { generateVariationsHeuristic, enforceInstructionLocks, applyAspectRatioToPrompt } from '../lib/promptVariationEngine.js';
+import {
+  optimizePromptHeuristic,
+  buildOptimizerSystemPrompt,
+  identifyRecognizedShorthands as identifyOptimizerShorthands,
+  detectInstructionConflicts as detectOptimizerConflicts,
+  enforceInstructionLocks as enforceOptimizerLocks,
+  OPTIMIZATION_MODES as OPTIMIZER_MODES
+} from '../lib/promptOptimizerEngine.js';
 
 export const GEMINI_STATUS = {
   CONNECTED: 'CONNECTED',     // 🟢 Tersambung
@@ -3377,6 +3385,127 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERSIH TANPA MARKDOWN BACKTICKS DENGAN
       console.warn('Gemini generatePromptVariations error, fallback to heuristic:', err);
       return {
         ...heuristicResult,
+        source: 'HEURISTIC_LOCAL',
+        notice: `Dihasilkan menggunakan engine lokal V3.8 (${err.message || 'Offline'}).`
+      };
+    }
+  }
+
+  /**
+   * Mengoptimalkan prompt berdasarkan Mode dan Instruction Lock (V3.8 Patch)
+   */
+  async optimizePrompt({
+    basePrompt,
+    mode = 'balanced',
+    count = 3,
+    lockedConfig = {},
+    detectedRatio = null
+  }) {
+    // 1. Dapatkan hasil heuristik terstruktur sebagai baseline atau fallback
+    const heuristicResults = optimizePromptHeuristic({
+      basePrompt,
+      mode,
+      count,
+      lockedConfig,
+      catalog: this.catalog,
+      detectedRatio
+    });
+
+    const key = StorageService.getApiKey();
+    if (!key || this.status === GEMINI_STATUS.FAILED) {
+      return {
+        results: heuristicResults,
+        source: 'HEURISTIC_LOCAL',
+        notice: 'Dihasilkan secara lokal menggunakan Prompt Optimizer Engine V3.8.'
+      };
+    }
+
+    try {
+      const model = StorageService.getModel() || 'gemini-2.5-flash';
+      const cleanModel = model.replace(/^models\//, '');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${key}`;
+
+      const systemPrompt = buildOptimizerSystemPrompt({
+        mode,
+        lockedConfig,
+        catalog: this.catalog
+      });
+
+      const promptText = `
+${systemPrompt}
+
+USER SOURCE PROMPT TO OPTIMIZE:
+"""${basePrompt}"""
+
+Generate exactly ${count} distinct optimized prompt versions following the "${mode}" mode directives.
+Return valid JSON only.
+`.trim();
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature: 0.65,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parsed = this.extractJson(rawText);
+
+      if (parsed && Array.isArray(parsed.versions) && parsed.versions.length > 0) {
+        const enriched = parsed.versions.slice(0, count).map((v, i) => {
+          let enforcedPrompt = enforceOptimizerLocks(v.prompt || '', lockedConfig);
+          if (lockedConfig.aspectRatio) {
+            const arMatch = basePrompt.match(/--ar\s+([0-9.:]+)/i);
+            if (arMatch) {
+              enforcedPrompt = applyAspectRatioToPrompt(enforcedPrompt, arMatch[1].trim());
+            } else if (detectedRatio) {
+              enforcedPrompt = applyAspectRatioToPrompt(enforcedPrompt, detectedRatio);
+            }
+          }
+          const recognizedShorthands = identifyOptimizerShorthands(enforcedPrompt, this.catalog);
+          const conflicts = detectOptimizerConflicts(enforcedPrompt, lockedConfig);
+
+          return {
+            id: `opt_v${i + 1}_${Date.now()}`,
+            versionNumber: i + 1,
+            versionName: v.versionName || `Versi ${i + 1}`,
+            mode,
+            modeName: (OPTIMIZER_MODES[mode.toUpperCase()] || OPTIMIZER_MODES.BALANCED).name,
+            prompt: enforcedPrompt,
+            originalPrompt: basePrompt,
+            summary: v.summary || 'Optimasi cerdas Gemini AI berbasis shorthand.',
+            recognizedShorthands,
+            conflicts,
+            directiveUsed: 'Gemini AI Optimization'
+          };
+        });
+
+        return {
+          results: enriched,
+          source: 'GEMINI_AI',
+          notice: `Dihasilkan menggunakan ${cleanModel} dengan kecerdasan Gemini AI & perlindungan instruksi.`
+        };
+      }
+
+      return {
+        results: heuristicResults,
+        source: 'HEURISTIC_LOCAL',
+        notice: 'Dihasilkan secara lokal menggunakan Prompt Optimizer Engine V3.8.'
+      };
+    } catch (err) {
+      console.warn('Gemini optimizePrompt error, fallback to heuristic:', err);
+      return {
+        results: heuristicResults,
         source: 'HEURISTIC_LOCAL',
         notice: `Dihasilkan menggunakan engine lokal V3.8 (${err.message || 'Offline'}).`
       };

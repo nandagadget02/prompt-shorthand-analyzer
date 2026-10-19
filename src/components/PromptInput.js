@@ -17,6 +17,7 @@ import {
   TWO_WORLDS_ENVIRONMENT_STYLES
 } from '../data/twoWorldsData.js';
 import { renderColourGradingPanel } from './ColourGradingPanel.js';
+import { renderPromptOptimizerPanel } from './PromptOptimizerPanel.js';
 import { DEFAULT_COLOUR_GRADING_CONFIG } from '../data/colourGradingData.js';
 import { analyzeImageColorTelemetry } from '../lib/colourGradingEngine.js';
 
@@ -47,7 +48,15 @@ export function renderPromptInput({
   promptAnalysisCustomAspectRatio = '',
   promptAnalysisAspectRatioError = null,
   onPromptAnalysisAspectRatioChange,
-  onPromptAnalysisCustomAspectRatioChange
+  onPromptAnalysisCustomAspectRatioChange,
+  promptOptimizerState = {},
+  onPromptOptimizerStateChange,
+  onRunPromptOptimization,
+  onCopyOptimizedPrompt,
+  onSetAsMainPrompt,
+  onOptimizeAgain,
+  optimalPromptForOptimizer = '',
+  variationListForOptimizer = []
 }) {
   const presets = renderPresetTests(onSelectPreset);
   const colourGradingPanelComp = activeMode === 'COLOUR_GRADING'
@@ -61,6 +70,20 @@ export function renderPromptInput({
         onSelectBatchImage
       })
     : null;
+
+  const promptOptimizerPanelComp = activeMode === 'PROMPT_OPTIMIZER'
+    ? renderPromptOptimizerPanel({
+        state: promptOptimizerState,
+        optimalPrompt: optimalPromptForOptimizer,
+        variationList: variationListForOptimizer,
+        onStateChange: onPromptOptimizerStateChange,
+        onRunOptimization: onRunPromptOptimization,
+        onCopyPrompt: onCopyOptimizedPrompt,
+        onSetAsMainPrompt: onSetAsMainPrompt,
+        onOptimizeAgain: onOptimizeAgain
+      })
+    : null;
+
   const detectedRatio = uploadedImage
     ? (uploadedImage.detectedAspectRatio || (uploadedImage.width && uploadedImage.height ? detectClosestAspectRatio(uploadedImage.width, uploadedImage.height) : '1:1'))
     : null;
@@ -76,6 +99,8 @@ export function renderPromptInput({
     modeTipText = '💡 Mendiagnosis parameter warna, tone curve, saturasi &amp; merekomendasikan seluruh shorthand colour grading yang relevan tanpa batasan jumlah.';
   } else if (activeMode === 'SHORTHAND_IMPROVE' && uploadedImage) {
     modeTipText = '💡 Mendiagnosis seluruh parameter visual &amp; merekomendasikan seluruh shorthand perbaikan yang relevan tanpa batasan jumlah.';
+  } else if (activeMode === 'PROMPT_OPTIMIZER') {
+    modeTipText = '✨ Mengoptimalkan prompt menjadi versi bersih, tajam, kaya detail, dan terstruktur sesuai mode &amp; shorthand yang dipilih.';
   }
 
   let buttonText = isOnlineActive ? '🌐 Analisis Prompt' : 'Analisis Prompt';
@@ -105,7 +130,7 @@ export function renderPromptInput({
           <h2>INPUT &amp; MODE ANALISIS</h2>
         </div>
         <div style="display: flex; gap: 0.4rem;">
-          ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS') ? `
+          ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER') ? `
             <button type="button" class="btn btn-outline btn-xs" id="btn-clear-prompt" title="Kosongkan teks">
               Kosongkan
             </button>
@@ -141,6 +166,10 @@ export function renderPromptInput({
         <button type="button" class="mode-tab-btn ${activeMode === 'COLOUR_GRADING' ? 'active' : ''}" data-mode="COLOUR_GRADING">
           <span>🎨</span>
           <span>colour grading</span>
+        </button>
+        <button type="button" class="mode-tab-btn ${activeMode === 'PROMPT_OPTIMIZER' ? 'active' : ''}" data-mode="PROMPT_OPTIMIZER">
+          <span>✨</span>
+          <span>Prompt Optimizer</span>
         </button>
       </div>
 
@@ -422,7 +451,7 @@ export function renderPromptInput({
       ` : ''}
 
       <!-- Textarea Input (Hanya untuk Mode 1, Mode 3, dan Colour Grading) -->
-      ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS') ? `
+      ${(activeMode !== 'IMAGE_TO_PROMPT' && activeMode !== 'TWO_WORLDS' && activeMode !== 'BACKGROUND_ANALYSIS' && activeMode !== 'PROMPT_OPTIMIZER') ? `
         <div class="form-group" style="margin-bottom: 0.85rem;">
           <label for="prompt-textarea" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem;">
             ${((activeMode === 'SHORTHAND_IMPROVE' || activeMode === 'COLOUR_GRADING') && uploadedImage)
@@ -511,7 +540,11 @@ export function renderPromptInput({
         </div>
       ` : ''}
 
-      <!-- Actions Bar -->
+      <!-- PROMPT OPTIMIZER PANEL (V3.8 PATCH) -->
+      ${activeMode === 'PROMPT_OPTIMIZER' ? (promptOptimizerPanelComp ? promptOptimizerPanelComp.html : '') : ''}
+
+      <!-- Actions Bar (Hanya untuk Mode selain PROMPT_OPTIMIZER) -->
+      ${activeMode !== 'PROMPT_OPTIMIZER' ? `
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
         <small style="color: var(--text-muted); font-size: 0.775rem;">
           ${modeTipText}
@@ -521,12 +554,16 @@ export function renderPromptInput({
           ${buttonText}
         </button>
       </div>
+      ` : ''}
     </section>
   `;
 
   return {
     html,
     bindEvents(container) {
+      if (activeMode === 'PROMPT_OPTIMIZER' && promptOptimizerPanelComp) {
+        promptOptimizerPanelComp.bindEvents(container);
+      }
       if (activeMode === 'COLOUR_GRADING' && colourGradingPanelComp) {
         colourGradingPanelComp.bindEvents(container);
       }
