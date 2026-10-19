@@ -403,13 +403,19 @@ export function formatTwoWorldsEnglishIntegration(twoWorldsConfig, visionData = 
   // 3. Style Subjek
   const isSubjectStyleExplicit = subjectStyle && !subjectStyle.toLowerCase().startsWith('auto');
   if (isSubjectStyleExplicit) {
-    const finalSubjectStyle = subjectStyle === 'Custom'
-      ? (customSubjectStyle ? toAiEnglishPrompt(customSubjectStyle.trim()) : 'Custom Realistic')
-      : subjectStyle;
+    if (subjectStyle.toLowerCase() === 'ultra realistic') {
+      sections.push(
+        `Subject Style: Visual rendering, materiality, skin microtexture, and clothing adopt an Ultra Realistic photographic aesthetic (ultra-realistic photographic rendering, natural skin microtexture, realistic anatomy and proportions, lifelike hair and fabric details, physically plausible lighting and shadows, natural optical characteristics, authentic photographic appearance), strictly rendering as an authentic photograph rather than illustration, CGI, or 3D render.`
+      );
+    } else {
+      const finalSubjectStyle = subjectStyle === 'Custom'
+        ? (customSubjectStyle ? toAiEnglishPrompt(customSubjectStyle.trim()) : 'Custom Realistic')
+        : subjectStyle;
 
-    sections.push(
-      `Subject Style: Visual rendering, materiality, skin microtexture, and clothing adopt a ${finalSubjectStyle} aesthetic, prioritizing natural anatomical fidelity, authentic microtextures, and directional illumination on the subject.`
-    );
+      sections.push(
+        `Subject Style: Visual rendering, materiality, skin microtexture, and clothing adopt a ${finalSubjectStyle} aesthetic, prioritizing natural anatomical fidelity, authentic microtextures, and directional illumination on the subject.`
+      );
+    }
   }
 
   // 4. Environment Style

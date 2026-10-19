@@ -2061,9 +2061,9 @@ console.log('\n--- TEST V3.5: 6 FITUR PARAMETER KHUSUS TAB "2 DUNIA" ---');
   assert(TWO_WORLDS_ETHNICITIES.includes('Auto (Smart Detection)'), 'Etnis memuat Auto');
   assert(TWO_WORLDS_ETHNICITIES.includes('Asia') && TWO_WORLDS_ETHNICITIES.includes('Eropa') && TWO_WORLDS_ETHNICITIES.includes('Amerika Latin'), 'Etnis memuat pilihan regional');
 
-  assert(Array.isArray(TWO_WORLDS_SUBJECT_STYLES) && TWO_WORLDS_SUBJECT_STYLES.length === 7, 'TWO_WORLDS_SUBJECT_STYLES memuat 7 opsi');
+  assert(Array.isArray(TWO_WORLDS_SUBJECT_STYLES) && TWO_WORLDS_SUBJECT_STYLES.length === 8, 'TWO_WORLDS_SUBJECT_STYLES memuat 8 opsi (Auto + 7 style preset)');
   assert(TWO_WORLDS_SUBJECT_STYLES.includes('Auto (Smart Detection)') && TWO_WORLDS_SUBJECT_STYLES.includes('Custom'), 'Subject style memuat Auto dan Custom');
-  assert(TWO_WORLDS_SUBJECT_STYLES.includes('Raw Photography Realism') && TWO_WORLDS_SUBJECT_STYLES.includes('Photorealistic'), 'Subject style memuat opsi realism');
+  assert(TWO_WORLDS_SUBJECT_STYLES.includes('Raw Photography Realism') && TWO_WORLDS_SUBJECT_STYLES.includes('Photorealistic') && TWO_WORLDS_SUBJECT_STYLES.includes('Ultra Realistic'), 'Subject style memuat opsi realism termasuk Ultra Realistic');
 
   assert(Array.isArray(TWO_WORLDS_ENVIRONMENT_STYLES) && TWO_WORLDS_ENVIRONMENT_STYLES.length === 93, 'TWO_WORLDS_ENVIRONMENT_STYLES memuat 93 opsi terstruktur (Auto + 92 curated styles)');
   const spongebobStyle = TWO_WORLDS_ENVIRONMENT_STYLES.find(e => e.name === 'SpongeBob Cinematic 3D');
@@ -2135,6 +2135,30 @@ console.log('\n--- TEST V3.5: 6 FITUR PARAMETER KHUSUS TAB "2 DUNIA" ---');
   const customStyleText = buildTwoWorldsPromptIntegration(customStyleConfig);
   assert(customStyleText.includes('Cyberpunk Hyper-Detail'), 'Custom Subject Style terintegrasi ke prompt saat dipilih');
   assert(!customStyleText.includes('Style Lingkungan') && !customStyleText.includes('Environment Style:'), 'Environment Style Auto tidak menambahkan klausul berlebih');
+
+  // Ultra Realistic Subject Style test (V3.8 Patch)
+  assert(TWO_WORLDS_SUBJECT_STYLES.includes('Ultra Realistic'), 'TWO_WORLDS_SUBJECT_STYLES memuat opsi "Ultra Realistic"');
+  assert(TWO_WORLDS_SUBJECT_STYLES[0] === 'Auto (Smart Detection)', 'Auto (Smart Detection) tetap menjadi opsi default pertama');
+
+  const ultraRealisticConfig = {
+    customRequest: '',
+    gender: 'Auto',
+    age: 'Auto',
+    ethnicity: 'Auto',
+    subjectStyle: 'Ultra Realistic',
+    customSubjectStyle: '',
+    environmentStyle: 'Auto'
+  };
+  const ultraRealisticText = buildTwoWorldsPromptIntegration(ultraRealisticConfig);
+  assert(ultraRealisticText.includes('Ultra Realistic photographic aesthetic'), 'Subject Style Ultra Realistic diterapkan ke prompt');
+  assert(ultraRealisticText.includes('ultra-realistic photographic rendering'), 'Subject Style memuat arahan ultra-realistic photographic rendering');
+  assert(ultraRealisticText.includes('natural skin microtexture'), 'Subject Style memuat arahan natural skin microtexture');
+  assert(ultraRealisticText.includes('realistic anatomy and proportions'), 'Subject Style memuat arahan realistic anatomy and proportions');
+  assert(ultraRealisticText.includes('lifelike hair and fabric details'), 'Subject Style memuat arahan lifelike hair and fabric details');
+  assert(ultraRealisticText.includes('physically plausible lighting and shadows'), 'Subject Style memuat arahan physically plausible lighting and shadows');
+  assert(ultraRealisticText.includes('natural optical characteristics'), 'Subject Style memuat arahan natural optical characteristics');
+  assert(ultraRealisticText.includes('authentic photographic appearance'), 'Subject Style memuat arahan authentic photographic appearance');
+  assert(ultraRealisticText.includes('strictly rendering as an authentic photograph rather than illustration, CGI, or 3D render'), 'Subject Style menegaskan tampilan foto asli bukan ilustrasi/CGI/3D render');
 
   // 3. Prompt Optimal Full Assembly Order Check
   const geminiSvc = new GeminiService(INITIAL_SHORTHAND_CATALOG);
@@ -2945,6 +2969,7 @@ const renderedTwInput = renderPromptInput({
   }
 });
 assert(renderedTwInput.html.includes('value="LEGO Style" selected'), 'PromptInput me-render opsi subjectStyle "LEGO Style" terpilih');
+assert(renderedTwInput.html.includes('<option value="Ultra Realistic"'), 'PromptInput me-render pilihan "Ultra Realistic" pada dropdown 5. STYLE SUBYEK');
 assert(renderedTwInput.html.includes('value="Candy World 3D Style" selected'), 'PromptInput me-render opsi environmentStyle "Candy World 3D Style" terpilih');
 assert(renderedTwInput.html.includes('value="Perempuan" selected'), 'PromptInput me-render opsi gender "Perempuan" terpilih');
 assert(renderedTwInput.html.includes('value="25 tahun" selected'), 'PromptInput me-render opsi age "25 tahun" terpilih');

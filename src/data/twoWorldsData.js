@@ -82,6 +82,7 @@ export const TWO_WORLDS_SUBJECT_STYLES = [
   'Auto (Smart Detection)',
   'Raw Photography Realism',
   'Realistic',
+  'Ultra Realistic',
   'Photorealistic',
   'Ultra Photorealistic',
   'Live-Action',
