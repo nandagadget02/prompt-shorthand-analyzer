@@ -125,39 +125,9 @@ export function triggerFileDownload(filename, content, mimeType = 'text/plain') 
  * Menghasilkan variasi batch prompt berbasis prompt utama (atau mode mandiri)
  */
 export function generateBatchVariations(basePrompt = '', negativePrompt = '', count = 3, installedShorthands = []) {
-  // Kondisi Mode Mandiri: jika basePrompt kosong, buat 3 variasi kurasi negative prompt yang bermakna
+  // Jika basePrompt (PROMPT OPTIMAL) kosong, tidak menghasilkan batch variasi fiktif
   if (!basePrompt || typeof basePrompt !== 'string' || !basePrompt.trim()) {
-    const cleanNeg = (negativePrompt || '').trim();
-    return [
-      {
-        id: 'variation_1',
-        title: 'Variasi 1 (Universal Balanced)',
-        positivePrompt: '',
-        negativePrompt: cleanNeg || 'lowres, worst quality, bad anatomy, bad hands, cgi, watermark',
-        shorthands: installedShorthands,
-        nuance: 'Proteksi Universal Seimbang'
-      },
-      {
-        id: 'variation_2',
-        title: 'Variasi 2 (High-Protection Micro-Detail)',
-        positivePrompt: '',
-        negativePrompt: cleanNeg 
-          ? `${cleanNeg}, mutated hands, disfigured, poorly drawn face, blurry, oversaturated`
-          : 'lowres, worst quality, bad anatomy, deformed, mutated hands, disfigured, cgi, 3d render, watermark, blurry',
-        shorthands: installedShorthands,
-        nuance: 'Proteksi Ketat Detail & Anatomi'
-      },
-      {
-        id: 'variation_3',
-        title: 'Variasi 3 (Ultra-Clean Studio Lighting)',
-        positivePrompt: '',
-        negativePrompt: cleanNeg
-          ? `${cleanNeg}, harsh flash, blown out highlights, muddy shadows, awkward framing`
-          : 'lowres, worst quality, bad anatomy, harsh flash, blown out highlights, muddy shadows, awkward framing, watermark',
-        shorthands: installedShorthands,
-        nuance: 'Proteksi Pencahayaan & Komposisi Bersih'
-      }
-    ].slice(0, count);
+    return [];
   }
 
   // Kondisi Mode Analisis: Variasi berbasis prompt positif

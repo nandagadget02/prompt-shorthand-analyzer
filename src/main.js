@@ -56,6 +56,7 @@ class App {
     this.promptAnalysisCustomAspectRatio = '';
     this.promptAnalysisAspectRatioError = null;
     this.isAnalyzing = false;
+    this.analysisRequestId = 0;
     this.catalogCategory = 'ALL';
     this.catalogTarget = 'ALL';
     this.catalogRecLevel = 'ALL';
@@ -203,6 +204,8 @@ class App {
   }
 
   async runAnalysis(promptText, installedOverrides = null) {
+    const currentReqId = ++this.analysisRequestId;
+
     if (this.activeMode === 'IMAGE_TO_PROMPT' || this.activeMode === 'TWO_WORLDS' || this.activeMode === 'BACKGROUND_ANALYSIS') {
       if (!this.uploadedImage) {
         this.showToast('Silakan pilih atau unggah gambar referensi terlebih dahulu.', 'error');
@@ -250,6 +253,8 @@ class App {
             twoWorldsConfig: this.activeMode === 'TWO_WORLDS' ? this.twoWorldsConfig : null
           });
         }
+
+        if (currentReqId !== this.analysisRequestId) return;
 
         result.mode = this.activeMode;
         if (this.activeMode === 'TWO_WORLDS') {
@@ -306,10 +311,13 @@ class App {
           }
         }
       } catch (err) {
+        if (currentReqId !== this.analysisRequestId) return;
         this.showToast(`Gagal menganalisis gambar: ${err.message}`, 'error');
       } finally {
-        this.isAnalyzing = false;
-        this.render();
+        if (currentReqId === this.analysisRequestId) {
+          this.isAnalyzing = false;
+          this.render();
+        }
       }
       return;
     }
@@ -333,6 +341,8 @@ class App {
             colourGradingConfig: isColourGrading ? this.colourGradingConfig : null,
             telemetry: isColourGrading ? (this.uploadedImage.colorTelemetry || this.uploadedImage.visualTelemetry || null) : null
           });
+          if (currentReqId !== this.analysisRequestId) return;
+
           result.mode = this.activeMode;
           this.analysisResult = result;
           if (result.source === 'GEMINI_AI') {
@@ -344,10 +354,13 @@ class App {
             this.showToast(isColourGrading ? 'Diagnosis visual & rekomendasi colour grading selesai!' : 'Diagnosis visual & rekomendasi perbaikan gambar selesai!');
           }
         } catch (err) {
+          if (currentReqId !== this.analysisRequestId) return;
           this.showToast(`Gagal menganalisis ${isColourGrading ? 'colour grading' : 'perbaikan gambar'}: ${err.message}`, 'error');
         } finally {
-          this.isAnalyzing = false;
-          this.render();
+          if (currentReqId === this.analysisRequestId) {
+            this.isAnalyzing = false;
+            this.render();
+          }
         }
         return;
       }
@@ -363,14 +376,19 @@ class App {
 
       try {
         const result = await this.geminiService.analyzeShorthandImprove(promptText, installedOverrides, { isColourGrading, mode: this.activeMode });
+        if (currentReqId !== this.analysisRequestId) return;
+
         result.mode = this.activeMode;
         this.analysisResult = result;
         this.showToast(isColourGrading ? 'Analisa shorthand colour grading selesai!' : 'Analisa shorthand perbaikan selesai!');
       } catch (err) {
+        if (currentReqId !== this.analysisRequestId) return;
         this.showToast(`Gagal menganalisis: ${err.message}`, 'error');
       } finally {
-        this.isAnalyzing = false;
-        this.render();
+        if (currentReqId === this.analysisRequestId) {
+          this.isAnalyzing = false;
+          this.render();
+        }
       }
       return;
     }
@@ -399,6 +417,8 @@ class App {
 
     try {
       const result = await this.geminiService.analyzePrompt(promptText, installedOverrides);
+      if (currentReqId !== this.analysisRequestId) return;
+
       this.analysisResult = result;
 
       // Terapkan rasio hasil generate terpilih ke PROMPT OPTIMAL (V3.8 Patch)
@@ -406,10 +426,13 @@ class App {
 
       this.showToast('Analisis prompt selesai!');
     } catch (err) {
+      if (currentReqId !== this.analysisRequestId) return;
       this.showToast(`Gagal menganalisis: ${err.message}`, 'error');
     } finally {
-      this.isAnalyzing = false;
-      this.render();
+      if (currentReqId === this.analysisRequestId) {
+        this.isAnalyzing = false;
+        this.render();
+      }
     }
   }
 
@@ -418,6 +441,8 @@ class App {
    * Tidak pernah menghapus atau mengubah CatalogRepository.
    */
   handleReset() {
+    this.analysisRequestId++;
+    this.isAnalyzing = false;
     this.currentPrompt = '';
     this.uploadedImage = null;
     this.selectedAspectRatio = 'auto';
@@ -447,6 +472,8 @@ class App {
   }
 
   handleClear() {
+    this.analysisRequestId++;
+    this.isAnalyzing = false;
     this.currentPrompt = '';
     this.uploadedImage = null;
     this.selectedAspectRatio = 'auto';
@@ -1667,7 +1694,8 @@ class App {
         onCopyVariationPrompt: (text) => this.handleCopyPrompt(text, '✅ Prompt variasi disalin ke clipboard!'),
         onSetMainPromptFromVariation: (text) => this.handleSetMainPromptFromVariation(text),
         onOptimizeVariation: (text) => this.handleOptimizeVariation(text),
-        onMakeBaseForNextVariation: (text) => this.handleMakeBaseForNextVariation(text)
+        onMakeBaseForNextVariation: (text) => this.handleMakeBaseForNextVariation(text),
+        showNotification: (msg, type = 'success') => this.showToast(msg, type)
       });
     } else if (this.activeTab === 'prompt-variations') {
       // Backward compatibility fallback: alihkan langsung ke tab analyzer dengan mode PROMPT_VARIATIONS

@@ -157,20 +157,65 @@ export function runV38FeatureTests() {
   assert(mockPanel.html.includes('id="btn-export-json"'), 'UI: Tombol Ekspor JSON tersedia');
   assert(mockPanel.html.includes('id="btn-export-txt"'), 'UI: Tombol Ekspor TXT tersedia');
   assert(mockPanel.html.includes('id="btn-export-csv"'), 'UI: Tombol Ekspor CSV tersedia');
-  // 6. Mode Operasi & Context-Aware Conflict Detection Tests (Master Patch V3.8)
-  // QA 1: Mode Mandiri Tanpa Analisis (prompt kosong)
-  const standaloneRes = buildDynamicNegativePrompt({
+  // 6. Sinkronisasi PROMPT OPTIMAL & Dynamic Negative Prompt Builder Tests (V3.8 Synchronized Patch)
+  // QA 1: PROMPT OPTIMAL Kosong (Wajib 100% Kosong Tanpa Default)
+  const emptyRes = buildDynamicNegativePrompt({
     prompt: '',
-    userPrompt: '',
+    userPrompt: 'input mentah yang tidak boleh dijadikan fallback',
     analysisStatus: 'IDLE'
   });
-  assert(standaloneRes.mode === 'STANDALONE', 'Mode Mandiri: Mode terdeteksi sebagai STANDALONE');
-  assert(standaloneRes.termCount > 0, 'Mode Mandiri: Menghasilkan istilah negatif default');
-  assert(standaloneRes.negativePrompt.includes('bad anatomy'), 'Mode Mandiri: Memuat proteksi anatomi default');
+  assert(emptyRes.mode === 'EMPTY', 'Sync Kosong: Mode terdeteksi sebagai EMPTY saat prompt optimal kosong');
+  assert(emptyRes.termCount === 0, 'Sync Kosong: Jumlah istilah negatif aktif bernilai tepat 0');
+  assert(emptyRes.negativePrompt === '', 'Sync Kosong: String negative prompt kosong bersih tanpa teks default');
+  assert(emptyRes.terms.length === 0, 'Sync Kosong: Array istilah negatif kosong');
+  assert(emptyRes.modeLabel === 'MENUNGGU PROMPT OPTIMAL', 'Sync Kosong: Label status menunjukkan MENUNGGU PROMPT OPTIMAL');
 
-  // QA 2: Mode Mandiri dengan Semua Kategori Nonaktif
-  const emptyCatRes = buildDynamicNegativePrompt({
-    prompt: '',
+  // QA 2: PROMPT OPTIMAL Hanya Spasi / Whitespace (Wajib Dinyatakan Kosong)
+  const whitespaceRes = buildDynamicNegativePrompt({
+    prompt: '   \n\t  ',
+    userPrompt: 'some prompt',
+    analysisStatus: 'ANALYSIS_READY'
+  });
+  assert(whitespaceRes.mode === 'EMPTY', 'Sync Whitespace: Whitespace diidentifikasi sebagai kosong (mode EMPTY)');
+  assert(whitespaceRes.termCount === 0, 'Sync Whitespace: Istilah aktif tepat 0');
+  assert(whitespaceRes.negativePrompt === '', 'Sync Whitespace: Negative prompt tetap kosong bersih');
+
+  // QA 3: PROMPT OPTIMAL Terisi Subjek Manusia (Contextual Relevan: Anatomi Aktif)
+  const humanPromptRes = buildDynamicNegativePrompt({
+    prompt: 'A stunning close-up portrait of a female model wearing silk scarf /facelock /cam_portrait'
+  });
+  assert(humanPromptRes.mode === 'ANALYSIS', 'Sync Manusia: Mode terdeteksi sebagai ANALYSIS saat prompt optimal terisi');
+  assert(humanPromptRes.termCount > 0, 'Sync Manusia: Istilah negatif berhasil dihasilkan');
+  assert(humanPromptRes.terms.includes('bad anatomy'), 'Sync Manusia: Memuat istilah anatomi karena subjek manusia terdeteksi');
+  assert(humanPromptRes.terms.includes('bad hands'), 'Sync Manusia: Memuat istilah tangan karena subjek manusia terdeteksi');
+
+  // QA 4: PROMPT OPTIMAL Terisi Lanskap / Objek Non-Manusia (Kontekstual: Tanpa Anatomi Manusia)
+  const landscapePromptRes = buildDynamicNegativePrompt({
+    prompt: 'A sleek modern red sports car driving on a scenic alpine road at sunset, 8k resolution'
+  });
+  assert(landscapePromptRes.termCount > 0, 'Sync Lanskap: Menghasilkan istilah kualitas relevan');
+  assert(!landscapePromptRes.terms.includes('bad anatomy'), 'Sync Lanskap: Tidak memuat istilah anatomi untuk mobil/alam');
+  assert(!landscapePromptRes.terms.includes('bad hands'), 'Sync Lanskap: Tidak memuat istilah tangan untuk mobil/alam');
+  assert(!landscapePromptRes.terms.includes('extra limbs'), 'Sync Lanskap: Tidak memuat istilah anggota tubuh ekstra');
+
+  // QA 5: Kategori Proteksi Dapat Di-toggle Ketika Prompt Terisi
+  const customToggleRes = buildDynamicNegativePrompt({
+    prompt: 'A stunning portrait of an artist in studio',
+    activeCategories: {
+      quality: true,
+      anatomy: false,
+      styleContamination: true,
+      watermarkText: false,
+      compositionLighting: true
+    }
+  });
+  assert(!customToggleRes.terms.includes('watermark'), 'Toggle Kategori: Watermark difilter saat dinonaktifkan');
+  assert(!customToggleRes.terms.includes('bad hands'), 'Toggle Kategori: Anatomi difilter saat dinonaktifkan');
+  assert(customToggleRes.terms.includes('blurry'), 'Toggle Kategori: Kategori Kualitas tetap disertakan');
+
+  // QA 6: Semua Kategori Dinonaktifkan Saat Prompt Terisi
+  const allDisabledRes = buildDynamicNegativePrompt({
+    prompt: 'A futuristic city skyline',
     activeCategories: {
       quality: false,
       anatomy: false,
@@ -179,59 +224,19 @@ export function runV38FeatureTests() {
       compositionLighting: false
     }
   });
-  assert(emptyCatRes.termCount === 0, 'Mode Mandiri: Istilah kosong ketika semua kategori dinonaktifkan');
-  assert(emptyCatRes.negativePrompt === '', 'Mode Mandiri: Negative prompt kosong bersih');
-  assert(Boolean(emptyCatRes.emptyStateMessage), 'Mode Mandiri: Menyediakan pesan panduan empty state');
+  assert(allDisabledRes.termCount === 0, 'Semua Nonaktif: Istilah aktif tepat 0');
+  assert(allDisabledRes.negativePrompt === '', 'Semua Nonaktif: Negative prompt kosong bersih');
 
-  // QA 3: Mode Mandiri Hanya 1 Kategori Aktif (Hanya Kualitas)
-  const onlyQualityRes = buildDynamicNegativePrompt({
-    prompt: '',
-    activeCategories: {
-      quality: true,
-      anatomy: false,
-      styleContamination: false,
-      watermarkText: false,
-      compositionLighting: false
-    }
-  });
-  assert(onlyQualityRes.terms.includes('lowres'), 'Mode Mandiri: Kategori Kualitas memuat lowres');
-  assert(!onlyQualityRes.terms.includes('bad hands'), 'Mode Mandiri: Kategori Anatomi tidak disertakan');
-
-  // QA 4: Mode Analisis dengan Optimal Prompt
-  const analysisOptRes = buildDynamicNegativePrompt({
-    prompt: 'A cinematic hyperrealistic shot of a mountain tiger',
-    userPrompt: 'tiger',
-    analysisStatus: 'COMPLETED'
-  });
-  assert(analysisOptRes.mode === 'ANALYSIS', 'Mode Analisis: Terdeteksi sebagai ANALYSIS saat optimal prompt tersedia');
-
-  // QA 5: Mode Analisis dengan User Prompt ketika Optimal Prompt belum ada
-  const analysisUserRes = buildDynamicNegativePrompt({
-    prompt: '',
-    userPrompt: 'A beautiful oil painting of sunflowers in the field',
-    analysisStatus: 'ANALYZING'
-  });
-  assert(analysisUserRes.mode === 'ANALYSIS', 'Mode Analisis: Terdeteksi sebagai ANALYSIS menggunakan user prompt fallback');
-
-  // QA 6: Mode Fallback saat Analisis Gagal
-  const failedStatusRes = buildDynamicNegativePrompt({
-    prompt: '',
-    userPrompt: '',
-    analysisStatus: 'FAILED'
-  });
-  assert(failedStatusRes.mode === 'ANALYSIS_FAILED', 'Mode Fallback: Terdeteksi sebagai ANALYSIS_FAILED saat analisis gagal');
-  assert(failedStatusRes.termCount > 0, 'Mode Fallback: Tetap menghasilkan negative prompt mandiri untuk pengguna');
-
-  // QA 7: Conflict Detection - Anime / Manga (Jangan melarang anime/illustration)
+  // QA 7: Conflict Detection - Anime / Manga (Jangan melarang anime/illustration jika diminta)
   const animeConflictRes = buildDynamicNegativePrompt({
     prompt: '2D anime girl, colorful manga illustration, vibrant drawing'
   });
   assert(!animeConflictRes.terms.includes('anime'), 'Conflict: Istilah anime difilter keluar saat prompt meminta anime');
   assert(!animeConflictRes.terms.includes('illustration'), 'Conflict: Istilah illustration difilter keluar saat prompt meminta illustration');
   assert(!animeConflictRes.terms.includes('drawing'), 'Conflict: Istilah drawing difilter keluar saat prompt meminta drawing');
-  assert(animeConflictRes.conflictsResolved.length > 0, 'Conflict: Array conflictsResolved mencatat istilah yang disaring');
+  assert(animeConflictRes.conflictsDetected.length > 0, 'Conflict: conflictsDetected mencatat istilah yang disaring');
 
-  // QA 8: Conflict Detection - 3D / CGI Render (Jangan melarang CGI/3D)
+  // QA 8: Conflict Detection - 3D / CGI Render (Jangan melarang CGI/3D jika diminta)
   const cgiConflictRes = buildDynamicNegativePrompt({
     prompt: 'Octane 3D render of futuristic robot in Unreal Engine CGI'
   });
@@ -271,58 +276,40 @@ export function runV38FeatureTests() {
   assert(!logoRes.terms.includes('watermark'), 'Conflict: Istilah watermark difilter keluar saat prompt meminta logo/brand');
   assert(!logoRes.terms.includes('logo'), 'Conflict: Istilah logo difilter keluar saat prompt meminta logo/brand');
 
-  // QA 14: Standalone Batch Generator (basePrompt kosong)
-  const standaloneBatch = generateBatchVariations('', 'lowres, bad anatomy, blurry', 3);
-  assert(standaloneBatch.length === 3, 'Standalone Batch: Menghasilkan 3 variasi kurasi saat basePrompt kosong');
-  assert(standaloneBatch[0].title.includes('Universal Balanced'), 'Standalone Batch: Variasi 1 Universal Balanced');
-  assert(standaloneBatch[1].title.includes('High-Protection'), 'Standalone Batch: Variasi 2 High-Protection');
-  assert(standaloneBatch[2].title.includes('Ultra-Clean Studio'), 'Standalone Batch: Variasi 3 Ultra-Clean Studio');
-  assert(standaloneBatch[0].positivePrompt === '', 'Standalone Batch: Positive prompt tetap kosong bersih');
+  // QA 14: Batch Generator Saat PROMPT OPTIMAL Kosong (Wajib Bersih Tanpa Variasi Dummy)
+  const emptyBatch = generateBatchVariations('', 'blurry, bad anatomy', 3);
+  assert(Array.isArray(emptyBatch) && emptyBatch.length === 0, 'Batch Sync: Mengembalikan array kosong saat prompt optimal kosong');
 
-  // QA 15: Standalone TXT Export (tanpa blok POSITIVE PROMPT kosong)
-  const standaloneTxt = formatAsTxt(standaloneBatch);
-  assert(!standaloneTxt.includes('[POSITIVE PROMPT]'), 'Standalone TXT: Tidak memunculkan blok [POSITIVE PROMPT] kosong');
-  assert(standaloneTxt.includes('[NEGATIVE PROMPT]'), 'Standalone TXT: Memuat blok [NEGATIVE PROMPT]');
-  assert(standaloneTxt.includes('=== PROMPT VARIATION 1 ==='), 'Standalone TXT: Memuat pemisah variasi 1');
+  // QA 15: Batch Generator Saat PROMPT OPTIMAL Terisi
+  const populatedBatch = generateBatchVariations('A majestic lion in savanna', 'blurry, distorted', 3, ['/cam_telephoto']);
+  assert(populatedBatch.length === 3, 'Batch Sync: Menghasilkan 3 variasi saat prompt optimal terisi');
+  assert(populatedBatch[0].positivePrompt.includes('A majestic lion in savanna'), 'Batch Sync: Variasi 1 mempertahankan prompt optimal');
 
-  // QA 16: UI Component - Mode Mandiri Badge
-  const uiStandalone = renderNegativePromptPanel({
-    userPrompt: '',
+  // QA 16: UI Component - Tampilan Saat Prompt Optimal Kosong
+  const uiEmpty = renderNegativePromptPanel({
     optimalPrompt: '',
+    userPrompt: '',
     analysisStatus: 'IDLE'
   });
-  assert(uiStandalone.html.includes('MODE MANDIRI'), 'UI Badge: Menampilkan badge MODE MANDIRI');
-  assert(uiStandalone.html.includes('badge-standalone'), 'UI Badge: Memiliki style badge-standalone');
+  assert(uiEmpty.html.includes('0 istilah negatif aktif'), 'UI Sync: Badge menghitung 0 istilah negatif aktif saat prompt kosong');
+  assert(uiEmpty.html.includes('MENUNGGU PROMPT OPTIMAL'), 'UI Sync: Badge menampilkan MENUNGGU PROMPT OPTIMAL');
+  assert(uiEmpty.html.includes('Prompt Optimal belum tersedia'), 'UI Sync: Menampilkan pesan panduan bahwa prompt belum dianalisis');
 
-  // QA 17: UI Component - Mode Analisis Badge
-  const uiAnalysis = renderNegativePromptPanel({
-    userPrompt: 'portrait of a girl',
-    optimalPrompt: 'A photorealistic portrait of a girl /cam_portrait',
-    analysisStatus: 'COMPLETED'
+  // QA 17: UI Component - Tampilan Saat Prompt Optimal Terisi
+  const uiActive = renderNegativePromptPanel({
+    optimalPrompt: 'A photorealistic portrait of an astronaut on Mars /cam_portrait',
+    userPrompt: 'astronaut on Mars',
+    analysisStatus: 'ANALYSIS_READY'
   });
-  assert(uiAnalysis.html.includes('MODE ANALISIS'), 'UI Badge: Menampilkan badge MODE ANALISIS');
-  assert(uiAnalysis.html.includes('badge-analysis'), 'UI Badge: Memiliki style badge-analysis');
+  assert(uiActive.html.includes('TERHUBUNG KE PROMPT OPTIMAL'), 'UI Sync: Badge menampilkan TERHUBUNG KE PROMPT OPTIMAL');
+  assert(!uiActive.html.includes('0 istilah negatif aktif'), 'UI Sync: Menampilkan jumlah istilah aktif riil saat prompt terisi');
 
-  // QA 18: UI Component - Analisis Gagal Badge
-  const uiFailed = renderNegativePromptPanel({
-    userPrompt: '',
-    optimalPrompt: '',
-    analysisStatus: 'FAILED'
-  });
-  assert(uiFailed.html.includes('ANALISIS GAGAL'), 'UI Badge: Menampilkan badge status ANALISIS GAGAL');
-
-  // QA 19: UI Component - Banner Peringatan Konflik
-  const uiConflict = renderNegativePromptPanel({
-    userPrompt: 'anime girl character in fantasy forest illustration',
-    optimalPrompt: '',
-    analysisStatus: 'COMPLETED'
-  });
-  assert(uiConflict.html.includes('id="negative-conflicts-wrap"'), 'UI Conflict: Container banner konflik tersedia');
-  assert(uiConflict.html.includes('Konflik Terdeteksi &amp; Disesuaikan') || uiConflict.html.includes('Konflik Terdeteksi & Disesuaikan'), 'UI Conflict: Banner konflik aktif saat ada intent artistik khusus');
-
-  // QA 20: UI Component - Pratinjau Batch Memuat Kolom Positif dan Negatif
-  assert(uiStandalone.html.includes('col-negative-variation'), 'UI Batch Drawer: Memuat kolom Negative Prompt');
-  assert(uiStandalone.html.includes('col-positive-variation'), 'UI Batch Drawer: Memuat kolom Positive Prompt');
+  // QA 18: UI Component - Komponen Tombol dan Aksi Siap
+  assert(uiActive.html.includes('id="btn-copy-negative-prompt"'), 'UI: Tombol Salin Negative tersedia');
+  assert(uiActive.html.includes('id="btn-copy-combined-prompts"'), 'UI: Tombol Salin Positif + Negatif tersedia');
+  assert(uiActive.html.includes('id="btn-export-json"'), 'UI: Tombol Ekspor JSON tersedia');
+  assert(uiActive.html.includes('id="btn-export-txt"'), 'UI: Tombol Ekspor TXT tersedia');
+  assert(uiActive.html.includes('id="btn-export-csv"'), 'UI: Tombol Ekspor CSV tersedia');
 
   console.log(`\nHASIL FITUR V3.8 TESTS: ${passed} PASSED, ${failed} FAILED\n`);
   return { passed, failed };

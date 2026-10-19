@@ -49,19 +49,23 @@ export function renderNegativePromptPanel({
   }
 
   const result = calculateResult();
-  const initialVariations = generateBatchVariations(result.effectivePrompt, result.negativePrompt, 3, installedShorthands);
+  const initialVariations = result.effectivePrompt ? generateBatchVariations(result.effectivePrompt, result.negativePrompt, 3, installedShorthands) : [];
 
-  let modeBadgeClass = 'badge badge-standalone';
-  let modeBadgeStyle = 'background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; color: #93c5fd; font-size: 0.68rem;';
-  if (result.mode === 'ANALYSIS') {
+  let modeBadgeClass = 'badge badge-empty';
+  let modeBadgeStyle = 'background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.35); color: #94a3b8; font-size: 0.68rem;';
+  if (result.effectivePrompt) {
     modeBadgeClass = 'badge badge-analysis';
     modeBadgeStyle = 'background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #6ee7b7; font-size: 0.68rem;';
-  } else if (result.mode === 'ANALYSIS_FAILED') {
-    modeBadgeClass = 'badge badge-failed';
-    modeBadgeStyle = 'background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fcd34d; font-size: 0.68rem;';
   }
 
-  const emptyHint = 'Seluruh kategori dinonaktifkan. Aktifkan minimal satu kategori proteksi di atas untuk menghasilkan negative prompt.';
+  const getEmptyHint = (res) => {
+    if (!res.effectivePrompt) {
+      return 'Prompt Optimal belum tersedia. Lakukan analisis prompt terlebih dahulu untuk menghasilkan negative prompt otomatis.';
+    }
+    return 'Tidak ditemukan kebutuhan negative prompt relevan atau semua kategori proteksi dinonaktifkan.';
+  };
+
+  const emptyHint = getEmptyHint(result);
 
   const html = `
     <section class="panel analyzer-card card-negative-prompt" id="card-negative-prompt" style="margin-top: 1rem; border: 1px solid rgba(239, 68, 68, 0.25); background: rgba(15, 23, 42, 0.65);">
@@ -197,24 +201,27 @@ export function renderNegativePromptPanel({
         const conflictsText = panel.querySelector('#negative-conflicts-text');
 
         if (textEl) {
-          textEl.textContent = curResult.negativePrompt || emptyHint;
+          textEl.textContent = curResult.negativePrompt || getEmptyHint(curResult);
           textEl.style.color = curResult.negativePrompt ? '#fca5a5' : '#94a3b8';
         }
         if (countEl) countEl.textContent = `${curResult.termCount} istilah negatif aktif`;
         if (badgeEl) {
           badgeEl.textContent = curResult.modeLabel;
           if (curResult.mode === 'ANALYSIS') {
+            badgeEl.className = 'badge badge-analysis';
             badgeEl.style.background = 'rgba(16, 185, 129, 0.15)';
             badgeEl.style.borderColor = '#10b981';
             badgeEl.style.color = '#6ee7b7';
           } else if (curResult.mode === 'ANALYSIS_FAILED') {
+            badgeEl.className = 'badge badge-failed';
             badgeEl.style.background = 'rgba(245, 158, 11, 0.15)';
             badgeEl.style.borderColor = '#f59e0b';
             badgeEl.style.color = '#fcd34d';
           } else {
-            badgeEl.style.background = 'rgba(59, 130, 246, 0.15)';
-            badgeEl.style.borderColor = '#3b82f6';
-            badgeEl.style.color = '#93c5fd';
+            badgeEl.className = 'badge badge-empty';
+            badgeEl.style.background = 'rgba(148, 163, 184, 0.15)';
+            badgeEl.style.borderColor = 'rgba(148, 163, 184, 0.35)';
+            badgeEl.style.color = '#94a3b8';
           }
         }
 
@@ -246,8 +253,12 @@ export function renderNegativePromptPanel({
       if (copyNegBtn) {
         copyNegBtn.addEventListener('click', () => {
           const curResult = calculateResult();
+          if (!curResult.effectivePrompt) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Belum ada negative prompt yang dapat disalin.', 'warning');
+            return;
+          }
           if (!curResult.negativePrompt) {
-            if (showNotification) showNotification('Pilih minimal satu kategori proteksi untuk menghasilkan negative prompt.', 'warning');
+            if (showNotification) showNotification('Tidak ada negative prompt aktif untuk disalin.', 'warning');
             return;
           }
           navigator.clipboard.writeText(curResult.negativePrompt).then(() => {
@@ -264,25 +275,20 @@ export function renderNegativePromptPanel({
         copyCombBtn.addEventListener('click', () => {
           const curResult = calculateResult();
           const effectivePos = curResult.effectivePrompt;
-          let combined = '';
-          if (effectivePos) {
-            combined = `[PROMPT]\n${effectivePos}\n\n[NEGATIVE PROMPT]\n${curResult.negativePrompt || ''}`.trim();
-          } else {
-            combined = curResult.negativePrompt ? `[NEGATIVE PROMPT]\n${curResult.negativePrompt}` : '';
-          }
-
-          if (!combined) {
-            if (showNotification) showNotification('Prompt dan negative prompt masih kosong.', 'warning');
+          if (!effectivePos) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Silakan lakukan analisis prompt terlebih dahulu.', 'warning');
             return;
+          }
+          let combined = '';
+          if (curResult.negativePrompt) {
+            combined = `[PROMPT]\n${effectivePos}\n\n[NEGATIVE PROMPT]\n${curResult.negativePrompt}`.trim();
+          } else {
+            combined = `[PROMPT]\n${effectivePos}`.trim();
           }
 
           navigator.clipboard.writeText(combined).then(() => {
             if (showNotification) {
-              if (effectivePos) {
-                showNotification('Prompt Positif & Negatif berhasil disalin!');
-              } else {
-                showNotification('Negative prompt disalin (Mode Mandiri)!');
-              }
+              showNotification('Prompt Positif & Negatif berhasil disalin!');
             }
           }).catch(() => {
             if (onCopyText) onCopyText(combined);
@@ -297,12 +303,17 @@ export function renderNegativePromptPanel({
 
       if (toggleBatchBtn && batchContainer && batchList) {
         toggleBatchBtn.addEventListener('click', () => {
+          const curResult = calculateResult();
+          if (!curResult.effectivePrompt) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Belum ada variasi batch yang dapat ditampilkan.', 'warning');
+            return;
+          }
+
           isBatchVisible = !isBatchVisible;
           batchContainer.style.display = isBatchVisible ? 'block' : 'none';
           toggleBatchBtn.textContent = isBatchVisible ? '✕ Tutup Variasi Batch' : '✨ Lihat 3 Variasi Batch';
 
           if (isBatchVisible) {
-            const curResult = calculateResult();
             const variations = generateBatchVariations(curResult.effectivePrompt, curResult.negativePrompt, 3, installedShorthands);
             batchList.innerHTML = variations.map((v, i) => `
               <div style="background: rgba(10, 15, 29, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 0.6rem 0.75rem;">
@@ -343,12 +354,18 @@ export function renderNegativePromptPanel({
       // Export Handlers
       const getItemsToExport = () => {
         const curResult = calculateResult();
+        if (!curResult.effectivePrompt) return [];
         return generateBatchVariations(curResult.effectivePrompt, curResult.negativePrompt, 3, installedShorthands);
       };
 
       const exportJsonBtn = panel.querySelector('#btn-export-json');
       if (exportJsonBtn) {
         exportJsonBtn.addEventListener('click', () => {
+          const curResult = calculateResult();
+          if (!curResult.effectivePrompt) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Tidak ada prompt untuk diekspor.', 'warning');
+            return;
+          }
           const items = getItemsToExport();
           const jsonStr = formatAsJson(items);
           triggerFileDownload('prompts-shorthand-v3.8.json', jsonStr, 'application/json');
@@ -359,6 +376,11 @@ export function renderNegativePromptPanel({
       const exportTxtBtn = panel.querySelector('#btn-export-txt');
       if (exportTxtBtn) {
         exportTxtBtn.addEventListener('click', () => {
+          const curResult = calculateResult();
+          if (!curResult.effectivePrompt) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Tidak ada prompt untuk diekspor.', 'warning');
+            return;
+          }
           const items = getItemsToExport();
           const txtStr = formatAsTxt(items);
           triggerFileDownload('prompts-shorthand-v3.8.txt', txtStr, 'text/plain');
@@ -369,6 +391,11 @@ export function renderNegativePromptPanel({
       const exportCsvBtn = panel.querySelector('#btn-export-csv');
       if (exportCsvBtn) {
         exportCsvBtn.addEventListener('click', () => {
+          const curResult = calculateResult();
+          if (!curResult.effectivePrompt) {
+            if (showNotification) showNotification('Prompt Optimal masih kosong. Tidak ada prompt untuk diekspor.', 'warning');
+            return;
+          }
           const items = getItemsToExport();
           const csvStr = formatAsCsv(items);
           triggerFileDownload('prompts-shorthand-v3.8.csv', csvStr, 'text/csv');

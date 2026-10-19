@@ -176,11 +176,12 @@ export function filterConflicts(terms = [], profile = {}) {
 
 /**
  * Menghasilkan Dynamic Negative Prompt
- * Mendukung Mode Analisis (context-aware) dan Mode Mandiri (standalone).
+ * 100% tersinkronisasi dengan PROMPT OPTIMAL sebagai SATU-SATUNYA sumber data.
+ * - Jika PROMPT OPTIMAL kosong atau whitespace, hasil wajib kosong sepenuhnya (0 istilah).
+ * - Jika PROMPT OPTIMAL berisi teks, hasilkan negative prompt relevan sesuai isi prompt.
  */
 export function buildDynamicNegativePrompt({
   prompt = '',
-  userPrompt = '',
   installedShorthands = [],
   preset = NEGATIVE_PRESETS.UNIVERSAL,
   activeCategories = {
@@ -193,65 +194,78 @@ export function buildDynamicNegativePrompt({
   customTerms = [],
   analysisStatus = 'IDLE'
 } = {}) {
-  // Resolusi input hirarkis: PROMPT OPTIMAL -> User Positive Prompt -> Standalone
-  const effectivePrompt = (prompt && typeof prompt === 'string' && prompt.trim())
-    ? prompt.trim()
-    : ((userPrompt && typeof userPrompt === 'string' && userPrompt.trim()) ? userPrompt.trim() : '');
+  // PROMPT OPTIMAL menjadi satu-satunya sumber data (tanpa fallback input mentah)
+  const cleanOptimalPrompt = (prompt && typeof prompt === 'string') ? prompt.trim() : '';
 
-  // Tentukan mode operasi
-  let mode = 'STANDALONE';
-  let modeLabel = 'MODE MANDIRI';
-
-  if (analysisStatus === 'FAILED') {
-    mode = 'ANALYSIS_FAILED';
-    modeLabel = 'ANALISIS GAGAL — MODE MANDIRI TERSEDIA';
-  } else if (prompt && typeof prompt === 'string' && prompt.trim()) {
-    mode = 'ANALYSIS';
-    modeLabel = 'MODE ANALISIS';
-  } else if (effectivePrompt) {
-    mode = 'ANALYSIS';
-    modeLabel = 'MODE ANALISIS (LOKAL)';
-  } else {
-    mode = 'STANDALONE';
-    modeLabel = 'MODE MANDIRI';
+  // KONDISI A: PROMPT OPTIMAL KOSONG / HANYA WHITESPACE
+  if (!cleanOptimalPrompt) {
+    return {
+      negativePrompt: '',
+      termCount: 0,
+      profile: {
+        hasHumanSubject: false,
+        isPhotorealistic: false,
+        isAnimeOrArt: false,
+        hasLandscape: false,
+        requestsAnime: false,
+        requestsCgiOr3d: false,
+        requestsMotionBlur: false,
+        requestsLowKeyOrShadows: false,
+        requestsFilmGrain: false,
+        requestsCroppedOrFraming: false,
+        requestsLogoOrText: false
+      },
+      activeCategories,
+      terms: [],
+      mode: 'EMPTY',
+      modeLabel: 'MENUNGGU PROMPT OPTIMAL',
+      conflictsDetected: [],
+      conflictsResolved: [],
+      emptyStateMessage: 'Prompt Optimal belum tersedia. Lakukan analisis prompt terlebih dahulu untuk menghasilkan negative prompt otomatis.',
+      effectivePrompt: ''
+    };
   }
 
-  const profile = detectPromptProfile(effectivePrompt, installedShorthands);
+  // KONDISI B: PROMPT OPTIMAL TERISI
+  // Ekstrak shorthand dari prompt jika belum terdaftar
+  const embeddedShorthands = (cleanOptimalPrompt.match(/\/[a-zA-Z0-9_-]+/g) || []);
+  const allShorthands = Array.from(new Set([...(installedShorthands || []), ...embeddedShorthands]));
+
+  const profile = detectPromptProfile(cleanOptimalPrompt, allShorthands);
   let terms = [];
 
-  // 1. Kategori Kualitas (Quality)
+  // 1. Kategori Kualitas (Quality): Mencegah degradasi visual render
   if (activeCategories.quality) {
     terms.push(...DEFAULT_CATEGORY_TERMS.quality);
   }
 
-  // 2. Kategori Anatomi (Anatomy)
+  // 2. Kategori Anatomi (Anatomy): HANYA relevan jika PROMPT OPTIMAL memuat subjek manusia/karakter
   if (activeCategories.anatomy) {
-    // Pada mode mandiri, istilah anatomi dimasukkan jika kategori aktif.
-    // Pada mode analisis, istilah anatomi dimasukkan jika manusia terdeteksi atau preset portrait/universal.
-    if (mode === 'STANDALONE' || profile.hasHumanSubject || preset === NEGATIVE_PRESETS.PORTRAIT_ANATOMY || preset === NEGATIVE_PRESETS.UNIVERSAL) {
+    if (profile.hasHumanSubject) {
       terms.push(...DEFAULT_CATEGORY_TERMS.anatomy);
     }
   }
 
-  // 3. Kategori Kontaminasi Gaya (Style Contamination)
+  // 3. Kategori Kontaminasi Gaya (Style Contamination): Relevan terhadap gaya prompt
   if (activeCategories.styleContamination) {
     terms.push(...DEFAULT_CATEGORY_TERMS.styleContamination);
     if (profile.isAnimeOrArt) {
+      // Jika prompt adalah anime/seni, cegah kontaminasi fotorealistis
       terms.push('photorealistic', 'real life photography', 'realistic texture');
     }
   }
 
-  // 4. Kategori Watermark & Teks
+  // 4. Kategori Watermark & Teks: Cegah artefak teks dan tanda air
   if (activeCategories.watermarkText) {
     terms.push(...DEFAULT_CATEGORY_TERMS.watermarkText);
   }
 
-  // 5. Kategori Pencahayaan & Komposisi
+  // 5. Kategori Pencahayaan & Komposisi: Cegah pencahayaan rusak dan framing canggung
   if (activeCategories.compositionLighting) {
     terms.push(...DEFAULT_CATEGORY_TERMS.compositionLighting);
   }
 
-  // 6. Custom Terms Pengguna
+  // 6. Custom Terms Pengguna (jika ada)
   if (Array.isArray(customTerms) && customTerms.length > 0) {
     customTerms.forEach(term => {
       const trimmed = (term || '').trim();
@@ -261,15 +275,12 @@ export function buildDynamicNegativePrompt({
     });
   }
 
-  // Conflict Detection & Filtering (hanya jika ada konteks prompt positif)
-  let conflictsDetected = [];
-  if (effectivePrompt) {
-    const conflictResult = filterConflicts(terms, profile);
-    terms = conflictResult.filtered;
-    conflictsDetected = conflictResult.conflictsDetected;
-  }
+  // Conflict Detection & Filtering berbasis PROMPT OPTIMAL
+  const conflictResult = filterConflicts(terms, profile);
+  terms = conflictResult.filtered;
+  const conflictsDetected = conflictResult.conflictsDetected;
 
-  // Normalisasi & Deduplikasi Istilah (pertahankan urutan kemunculan pertama)
+  // Normalisasi & Deduplikasi Istilah
   const seen = new Set();
   const uniqueTerms = [];
   for (const t of terms) {
@@ -282,7 +293,7 @@ export function buildDynamicNegativePrompt({
   }
 
   const emptyStateMessage = uniqueTerms.length === 0
-    ? 'Semua kategori proteksi dinonaktifkan. Aktifkan minimal satu kategori untuk membentuk negative prompt.'
+    ? 'Tidak ditemukan kebutuhan negative prompt relevan atau seluruh kategori proteksi dinonaktifkan.'
     : '';
 
   return {
@@ -291,11 +302,11 @@ export function buildDynamicNegativePrompt({
     profile,
     activeCategories,
     terms: uniqueTerms,
-    mode,
-    modeLabel,
+    mode: 'ANALYSIS',
+    modeLabel: 'TERHUBUNG KE PROMPT OPTIMAL',
     conflictsDetected,
     conflictsResolved: conflictsDetected,
     emptyStateMessage,
-    effectivePrompt
+    effectivePrompt: cleanOptimalPrompt
   };
 }

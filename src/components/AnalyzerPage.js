@@ -89,7 +89,8 @@ export function renderAnalyzerPage({
   onCopyVariationPrompt,
   onSetMainPromptFromVariation,
   onOptimizeVariation,
-  onMakeBaseForNextVariation
+  onMakeBaseForNextVariation,
+  showNotification
 }) {
   const {
     optimalPrompt = '',
@@ -203,7 +204,8 @@ export function renderAnalyzerPage({
     onCopyPrompt,
     onEnrichPrompt,
     onRemoveShorthand,
-    onAddShorthand
+    onAddShorthand,
+    showNotification
   });
 
   const semanticIntentComp = renderSemanticIntent(intent);
