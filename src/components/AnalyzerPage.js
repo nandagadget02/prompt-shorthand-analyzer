@@ -134,10 +134,12 @@ export function renderAnalyzerPage({
 
   const promptOptimalComp = renderPromptOptimal({
     optimalPrompt,
+    userPrompt: currentPrompt || '',
     installedShorthands,
     catalog,
     isOnlineActive,
     isEnriching,
+    analysisStatus: analysisResult?.isFailed ? 'FAILED' : (optimalPrompt ? 'ANALYSIS_READY' : 'IDLE'),
     onCopyPrompt,
     onEnrichPrompt,
     onRemoveShorthand,

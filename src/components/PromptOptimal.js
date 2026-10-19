@@ -11,10 +11,12 @@ import { renderNegativePromptPanel } from './NegativePromptPanel.js';
 
 export function renderPromptOptimal({
   optimalPrompt = '',
+  userPrompt = '',
   installedShorthands = [],
   catalog = [],
   isOnlineActive = false,
   isEnriching = false,
+  analysisStatus = 'IDLE',
   onCopyPrompt,
   onEnrichPrompt,
   onRemoveShorthand,
@@ -31,7 +33,9 @@ export function renderPromptOptimal({
 
   const negativePanelComponent = renderNegativePromptPanel({
     optimalPrompt,
+    userPrompt,
     installedShorthands,
+    analysisStatus,
     onCopyText: onCopyText || onCopyPrompt,
     showNotification
   });

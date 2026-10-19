@@ -157,8 +157,174 @@ export function runV38FeatureTests() {
   assert(mockPanel.html.includes('id="btn-export-json"'), 'UI: Tombol Ekspor JSON tersedia');
   assert(mockPanel.html.includes('id="btn-export-txt"'), 'UI: Tombol Ekspor TXT tersedia');
   assert(mockPanel.html.includes('id="btn-export-csv"'), 'UI: Tombol Ekspor CSV tersedia');
-  assert(mockPanel.html.includes('id="btn-toggle-batch-preview"'), 'UI: Tombol Pratinjau Batch tersedia');
+  // 6. Mode Operasi & Context-Aware Conflict Detection Tests (Master Patch V3.8)
+  // QA 1: Mode Mandiri Tanpa Analisis (prompt kosong)
+  const standaloneRes = buildDynamicNegativePrompt({
+    prompt: '',
+    userPrompt: '',
+    analysisStatus: 'IDLE'
+  });
+  assert(standaloneRes.mode === 'STANDALONE', 'Mode Mandiri: Mode terdeteksi sebagai STANDALONE');
+  assert(standaloneRes.termCount > 0, 'Mode Mandiri: Menghasilkan istilah negatif default');
+  assert(standaloneRes.negativePrompt.includes('bad anatomy'), 'Mode Mandiri: Memuat proteksi anatomi default');
+
+  // QA 2: Mode Mandiri dengan Semua Kategori Nonaktif
+  const emptyCatRes = buildDynamicNegativePrompt({
+    prompt: '',
+    activeCategories: {
+      quality: false,
+      anatomy: false,
+      styleContamination: false,
+      watermarkText: false,
+      compositionLighting: false
+    }
+  });
+  assert(emptyCatRes.termCount === 0, 'Mode Mandiri: Istilah kosong ketika semua kategori dinonaktifkan');
+  assert(emptyCatRes.negativePrompt === '', 'Mode Mandiri: Negative prompt kosong bersih');
+  assert(Boolean(emptyCatRes.emptyStateMessage), 'Mode Mandiri: Menyediakan pesan panduan empty state');
+
+  // QA 3: Mode Mandiri Hanya 1 Kategori Aktif (Hanya Kualitas)
+  const onlyQualityRes = buildDynamicNegativePrompt({
+    prompt: '',
+    activeCategories: {
+      quality: true,
+      anatomy: false,
+      styleContamination: false,
+      watermarkText: false,
+      compositionLighting: false
+    }
+  });
+  assert(onlyQualityRes.terms.includes('lowres'), 'Mode Mandiri: Kategori Kualitas memuat lowres');
+  assert(!onlyQualityRes.terms.includes('bad hands'), 'Mode Mandiri: Kategori Anatomi tidak disertakan');
+
+  // QA 4: Mode Analisis dengan Optimal Prompt
+  const analysisOptRes = buildDynamicNegativePrompt({
+    prompt: 'A cinematic hyperrealistic shot of a mountain tiger',
+    userPrompt: 'tiger',
+    analysisStatus: 'COMPLETED'
+  });
+  assert(analysisOptRes.mode === 'ANALYSIS', 'Mode Analisis: Terdeteksi sebagai ANALYSIS saat optimal prompt tersedia');
+
+  // QA 5: Mode Analisis dengan User Prompt ketika Optimal Prompt belum ada
+  const analysisUserRes = buildDynamicNegativePrompt({
+    prompt: '',
+    userPrompt: 'A beautiful oil painting of sunflowers in the field',
+    analysisStatus: 'ANALYZING'
+  });
+  assert(analysisUserRes.mode === 'ANALYSIS', 'Mode Analisis: Terdeteksi sebagai ANALYSIS menggunakan user prompt fallback');
+
+  // QA 6: Mode Fallback saat Analisis Gagal
+  const failedStatusRes = buildDynamicNegativePrompt({
+    prompt: '',
+    userPrompt: '',
+    analysisStatus: 'FAILED'
+  });
+  assert(failedStatusRes.mode === 'ANALYSIS_FAILED', 'Mode Fallback: Terdeteksi sebagai ANALYSIS_FAILED saat analisis gagal');
+  assert(failedStatusRes.termCount > 0, 'Mode Fallback: Tetap menghasilkan negative prompt mandiri untuk pengguna');
+
+  // QA 7: Conflict Detection - Anime / Manga (Jangan melarang anime/illustration)
+  const animeConflictRes = buildDynamicNegativePrompt({
+    prompt: '2D anime girl, colorful manga illustration, vibrant drawing'
+  });
+  assert(!animeConflictRes.terms.includes('anime'), 'Conflict: Istilah anime difilter keluar saat prompt meminta anime');
+  assert(!animeConflictRes.terms.includes('illustration'), 'Conflict: Istilah illustration difilter keluar saat prompt meminta illustration');
+  assert(!animeConflictRes.terms.includes('drawing'), 'Conflict: Istilah drawing difilter keluar saat prompt meminta drawing');
+  assert(animeConflictRes.conflictsResolved.length > 0, 'Conflict: Array conflictsResolved mencatat istilah yang disaring');
+
+  // QA 8: Conflict Detection - 3D / CGI Render (Jangan melarang CGI/3D)
+  const cgiConflictRes = buildDynamicNegativePrompt({
+    prompt: 'Octane 3D render of futuristic robot in Unreal Engine CGI'
+  });
+  assert(!cgiConflictRes.terms.includes('cgi'), 'Conflict: Istilah cgi difilter keluar saat prompt meminta 3D CGI');
+  assert(!cgiConflictRes.terms.includes('3d render'), 'Conflict: Istilah 3d render difilter keluar saat prompt meminta 3D CGI');
+
+  // QA 9: Conflict Detection - Motion Blur (Jangan melarang blur jika diminta)
+  const motionBlurRes = buildDynamicNegativePrompt({
+    prompt: 'Sports racing car zooming with high speed motion blur action shot'
+  });
+  assert(!motionBlurRes.terms.includes('blurry'), 'Conflict: Istilah blurry difilter keluar saat prompt meminta motion blur');
+
+  // QA 10: Conflict Detection - Film Grain & Noise (Jangan melarang grain jika diminta)
+  const filmGrainRes = buildDynamicNegativePrompt({
+    prompt: 'Vintage 35mm film photograph with natural analog film grain and texture'
+  });
+  assert(!filmGrainRes.terms.includes('grainy noise'), 'Conflict: Istilah grainy noise difilter keluar saat prompt meminta film grain');
+
+  // QA 11: Conflict Detection - Low Key & Deep Shadows (Jangan melarang shadow jika diminta)
+  const lowKeyRes = buildDynamicNegativePrompt({
+    prompt: 'Dramatic low-key chiaroscuro portrait with deep dark shadows and silhouettes'
+  });
+  assert(!lowKeyRes.terms.includes('muddy shadows'), 'Conflict: Istilah muddy shadows difilter keluar saat prompt meminta low-key shadows');
+  assert(!lowKeyRes.terms.includes('underexposed'), 'Conflict: Istilah underexposed difilter keluar saat prompt meminta low-key shadows');
+
+  // QA 12: Conflict Detection - Extreme Framing / Close-up Crop
+  const framingRes = buildDynamicNegativePrompt({
+    prompt: 'Extreme close up macro shot of human eye tightly cropped in frame'
+  });
+  assert(!framingRes.terms.includes('awkward framing'), 'Conflict: Istilah awkward framing difilter keluar saat prompt meminta close-up cropped framing');
+  assert(!framingRes.terms.includes('cut off subject'), 'Conflict: Istilah cut off subject difilter keluar saat prompt meminta close-up cropped framing');
+
+  // QA 13: Conflict Detection - Logo / Watermark Preservation
+  const logoRes = buildDynamicNegativePrompt({
+    prompt: 'Product packaging bottle showing the official branded brand logo and label text'
+  });
+  assert(!logoRes.terms.includes('watermark'), 'Conflict: Istilah watermark difilter keluar saat prompt meminta logo/brand');
+  assert(!logoRes.terms.includes('logo'), 'Conflict: Istilah logo difilter keluar saat prompt meminta logo/brand');
+
+  // QA 14: Standalone Batch Generator (basePrompt kosong)
+  const standaloneBatch = generateBatchVariations('', 'lowres, bad anatomy, blurry', 3);
+  assert(standaloneBatch.length === 3, 'Standalone Batch: Menghasilkan 3 variasi kurasi saat basePrompt kosong');
+  assert(standaloneBatch[0].title.includes('Universal Balanced'), 'Standalone Batch: Variasi 1 Universal Balanced');
+  assert(standaloneBatch[1].title.includes('High-Protection'), 'Standalone Batch: Variasi 2 High-Protection');
+  assert(standaloneBatch[2].title.includes('Ultra-Clean Studio'), 'Standalone Batch: Variasi 3 Ultra-Clean Studio');
+  assert(standaloneBatch[0].positivePrompt === '', 'Standalone Batch: Positive prompt tetap kosong bersih');
+
+  // QA 15: Standalone TXT Export (tanpa blok POSITIVE PROMPT kosong)
+  const standaloneTxt = formatAsTxt(standaloneBatch);
+  assert(!standaloneTxt.includes('[POSITIVE PROMPT]'), 'Standalone TXT: Tidak memunculkan blok [POSITIVE PROMPT] kosong');
+  assert(standaloneTxt.includes('[NEGATIVE PROMPT]'), 'Standalone TXT: Memuat blok [NEGATIVE PROMPT]');
+  assert(standaloneTxt.includes('=== PROMPT VARIATION 1 ==='), 'Standalone TXT: Memuat pemisah variasi 1');
+
+  // QA 16: UI Component - Mode Mandiri Badge
+  const uiStandalone = renderNegativePromptPanel({
+    userPrompt: '',
+    optimalPrompt: '',
+    analysisStatus: 'IDLE'
+  });
+  assert(uiStandalone.html.includes('MODE MANDIRI'), 'UI Badge: Menampilkan badge MODE MANDIRI');
+  assert(uiStandalone.html.includes('badge-standalone'), 'UI Badge: Memiliki style badge-standalone');
+
+  // QA 17: UI Component - Mode Analisis Badge
+  const uiAnalysis = renderNegativePromptPanel({
+    userPrompt: 'portrait of a girl',
+    optimalPrompt: 'A photorealistic portrait of a girl /cam_portrait',
+    analysisStatus: 'COMPLETED'
+  });
+  assert(uiAnalysis.html.includes('MODE ANALISIS'), 'UI Badge: Menampilkan badge MODE ANALISIS');
+  assert(uiAnalysis.html.includes('badge-analysis'), 'UI Badge: Memiliki style badge-analysis');
+
+  // QA 18: UI Component - Analisis Gagal Badge
+  const uiFailed = renderNegativePromptPanel({
+    userPrompt: '',
+    optimalPrompt: '',
+    analysisStatus: 'FAILED'
+  });
+  assert(uiFailed.html.includes('ANALISIS GAGAL'), 'UI Badge: Menampilkan badge status ANALISIS GAGAL');
+
+  // QA 19: UI Component - Banner Peringatan Konflik
+  const uiConflict = renderNegativePromptPanel({
+    userPrompt: 'anime girl character in fantasy forest illustration',
+    optimalPrompt: '',
+    analysisStatus: 'COMPLETED'
+  });
+  assert(uiConflict.html.includes('id="negative-conflicts-wrap"'), 'UI Conflict: Container banner konflik tersedia');
+  assert(uiConflict.html.includes('Konflik Terdeteksi &amp; Disesuaikan') || uiConflict.html.includes('Konflik Terdeteksi & Disesuaikan'), 'UI Conflict: Banner konflik aktif saat ada intent artistik khusus');
+
+  // QA 20: UI Component - Pratinjau Batch Memuat Kolom Positif dan Negatif
+  assert(uiStandalone.html.includes('col-negative-variation'), 'UI Batch Drawer: Memuat kolom Negative Prompt');
+  assert(uiStandalone.html.includes('col-positive-variation'), 'UI Batch Drawer: Memuat kolom Positive Prompt');
 
   console.log(`\nHASIL FITUR V3.8 TESTS: ${passed} PASSED, ${failed} FAILED\n`);
   return { passed, failed };
 }
+

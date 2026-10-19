@@ -1,7 +1,8 @@
 /**
  * Prompt Exporter & Batch Generator V3.8
  * Mendukung ekspor prompt ke format JSON, TXT, dan CSV
- * serta pembuatan variasi batch prompt secara otomatis.
+ * serta pembuatan variasi batch prompt secara otomatis
+ * di Mode Analisis maupun Mode Mandiri.
  */
 
 /**
@@ -15,10 +16,12 @@ export function formatAsJson(items = []) {
     totalItems: items.length,
     items: items.map((item, idx) => ({
       id: item.id || `item_${idx + 1}`,
+      title: item.title || `Variasi ${idx + 1}`,
       positivePrompt: item.positivePrompt || '',
       negativePrompt: item.negativePrompt || '',
       shorthands: Array.isArray(item.shorthands) ? item.shorthands : [],
       wordCount: (item.positivePrompt || '').trim().split(/\s+/).filter(Boolean).length,
+      nuance: item.nuance || 'Default',
       timestamp: item.timestamp || new Date().toISOString()
     }))
   };
@@ -34,13 +37,15 @@ export function formatAsTxt(items = []) {
   const sections = items.map((item, idx) => {
     const lines = [];
     if (items.length > 1) {
-      lines.push(`=== PROMPT VARIATION ${idx + 1} ===`);
+      lines.push(item.title ? `=== PROMPT VARIATION ${idx + 1} === (${item.title})` : `=== PROMPT VARIATION ${idx + 1} ===`);
     }
-    lines.push(`[POSITIVE PROMPT]`);
-    lines.push(item.positivePrompt || '');
-    if (item.negativePrompt) {
-      lines.push(`\n[NEGATIVE PROMPT]`);
-      lines.push(item.negativePrompt);
+    if (item.positivePrompt && item.positivePrompt.trim()) {
+      lines.push(`[POSITIVE PROMPT]`);
+      lines.push(item.positivePrompt.trim());
+    }
+    if (item.negativePrompt && item.negativePrompt.trim()) {
+      lines.push(item.positivePrompt && item.positivePrompt.trim() ? `\n[NEGATIVE PROMPT]` : `[NEGATIVE PROMPT]`);
+      lines.push(item.negativePrompt.trim());
     }
     if (item.shorthands && item.shorthands.length > 0) {
       lines.push(`\n[SHORTHANDS]`);
@@ -65,21 +70,25 @@ function escapeCsv(val) {
  * Format prompt items ke CSV
  */
 export function formatAsCsv(items = []) {
-  const headers = ['ID', 'Positive Prompt', 'Negative Prompt', 'Installed Shorthands', 'Word Count', 'Timestamp'];
+  const headers = ['ID', 'Title', 'Positive Prompt', 'Negative Prompt', 'Installed Shorthands', 'Word Count', 'Nuance', 'Timestamp'];
   const rows = items.map((item, idx) => {
     const id = item.id || `PROMPT_${idx + 1}`;
+    const title = item.title || `Variasi ${idx + 1}`;
     const pos = item.positivePrompt || '';
     const neg = item.negativePrompt || '';
     const shorts = Array.isArray(item.shorthands) ? item.shorthands.join(';') : '';
     const words = pos.trim().split(/\s+/).filter(Boolean).length;
+    const nuance = item.nuance || '';
     const time = item.timestamp || new Date().toISOString();
 
     return [
       escapeCsv(id),
+      escapeCsv(title),
       escapeCsv(pos),
       escapeCsv(neg),
       escapeCsv(shorts),
       words,
+      escapeCsv(nuance),
       escapeCsv(time)
     ].join(',');
   });
@@ -113,13 +122,45 @@ export function triggerFileDownload(filename, content, mimeType = 'text/plain') 
 }
 
 /**
- * Menghasilkan variasi batch prompt berbasis prompt utama
+ * Menghasilkan variasi batch prompt berbasis prompt utama (atau mode mandiri)
  */
 export function generateBatchVariations(basePrompt = '', negativePrompt = '', count = 3, installedShorthands = []) {
-  if (!basePrompt || typeof basePrompt !== 'string') {
-    return [];
+  // Kondisi Mode Mandiri: jika basePrompt kosong, buat 3 variasi kurasi negative prompt yang bermakna
+  if (!basePrompt || typeof basePrompt !== 'string' || !basePrompt.trim()) {
+    const cleanNeg = (negativePrompt || '').trim();
+    return [
+      {
+        id: 'variation_1',
+        title: 'Variasi 1 (Universal Balanced)',
+        positivePrompt: '',
+        negativePrompt: cleanNeg || 'lowres, worst quality, bad anatomy, bad hands, cgi, watermark',
+        shorthands: installedShorthands,
+        nuance: 'Proteksi Universal Seimbang'
+      },
+      {
+        id: 'variation_2',
+        title: 'Variasi 2 (High-Protection Micro-Detail)',
+        positivePrompt: '',
+        negativePrompt: cleanNeg 
+          ? `${cleanNeg}, mutated hands, disfigured, poorly drawn face, blurry, oversaturated`
+          : 'lowres, worst quality, bad anatomy, deformed, mutated hands, disfigured, cgi, 3d render, watermark, blurry',
+        shorthands: installedShorthands,
+        nuance: 'Proteksi Ketat Detail & Anatomi'
+      },
+      {
+        id: 'variation_3',
+        title: 'Variasi 3 (Ultra-Clean Studio Lighting)',
+        positivePrompt: '',
+        negativePrompt: cleanNeg
+          ? `${cleanNeg}, harsh flash, blown out highlights, muddy shadows, awkward framing`
+          : 'lowres, worst quality, bad anatomy, harsh flash, blown out highlights, muddy shadows, awkward framing, watermark',
+        shorthands: installedShorthands,
+        nuance: 'Proteksi Pencahayaan & Komposisi Bersih'
+      }
+    ].slice(0, count);
   }
 
+  // Kondisi Mode Analisis: Variasi berbasis prompt positif
   const variations = [
     {
       id: 'variation_1',
@@ -156,7 +197,6 @@ export function generateBatchVariations(basePrompt = '', negativePrompt = '', co
 
   for (let i = 0; i < Math.min(count - 1, nuanceModifiers.length); i++) {
     const mod = nuanceModifiers[i];
-    // Sisipkan nuansa sebelum tag shorthand di akhir atau di ujung prompt
     const cleanBase = basePrompt.trim();
     let variedPrompt;
     if (cleanBase.endsWith('.')) {

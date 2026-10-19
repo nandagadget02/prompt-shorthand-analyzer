@@ -1,7 +1,9 @@
 /**
  * Dynamic Negative Prompt Builder Engine V3.8
  * Menghasilkan prompt negatif berkualitas tinggi secara adaptif
- * berdasarkan analisa prompt positif, shorthand terpasang, dan gaya visual.
+ * dalam dua mode operasi:
+ * 1. MODE ANALISIS: context-aware berbasis prompt optimal/positif dengan conflict filtering.
+ * 2. MODE MANDIRI: mandiri tanpa perlu menjalankan analisis AI terlebih dahulu.
  */
 
 export const NEGATIVE_PRESETS = {
@@ -92,25 +94,93 @@ export function detectPromptProfile(prompt = '', installedShorthands = []) {
 
   const isAnimeOrArt = /anime|manga|illustration|drawing|concept art|vector|cartoon|comic|pixiv/i.test(text);
 
+  // Deteksi intensi spesifik untuk conflict filtering
+  const requestsAnime = /anime|manga|illustration|drawing|concept art|vector|cartoon|comic|pixiv/i.test(text);
+  const requestsCgiOr3d = /cgi|3d render|unreal engine|octane render|blender|3d model|3d animation/i.test(text);
+  const requestsMotionBlur = /motion blur|action blur|speed blur|dynamic blur/i.test(text);
+  const requestsLowKeyOrShadows = /low[- ]?key|dark shadows?|chiaroscuro|deep shadows?|silhouette|moody shadows?/i.test(text);
+  const requestsFilmGrain = /film grain|vintage grain|analog noise|grainy texture|kodak|fujifilm/i.test(text);
+  const requestsCroppedOrFraming = /close[- ]?up|tight framing|cropped (subject|portrait|face)|macro shot/i.test(text);
+  const requestsLogoOrText = /(keep|preserve|show|showing|display|with|visible|featuring|contain).{0,40}(logo|watermark|text|brand|signature)|(brand|product|official) logo/i.test(text);
+
   return {
     hasHumanSubject,
     isPhotorealistic,
     isAnimeOrArt,
-    hasLandscape: /landscape|scenery|mountain|city|nature|street|architecture|building/i.test(text)
+    hasLandscape: /landscape|scenery|mountain|city|nature|street|architecture|building/i.test(text),
+    requestsAnime,
+    requestsCgiOr3d,
+    requestsMotionBlur,
+    requestsLowKeyOrShadows,
+    requestsFilmGrain,
+    requestsCroppedOrFraming,
+    requestsLogoOrText
   };
 }
 
 /**
+ * Filter istilah negatif yang bertentangan dengan prompt positif (Conflict Detection)
+ */
+export function filterConflicts(terms = [], profile = {}) {
+  const conflictsDetected = [];
+  const filtered = terms.filter(term => {
+    const t = term.toLowerCase().trim();
+
+    // 1. Jika prompt meminta anime/ilustrasi, jangan larang anime/illustration/cartoon/painting/drawing
+    if (profile.requestsAnime && ['illustration', 'cartoon', 'anime', 'drawing', 'painting'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta gaya anime / ilustrasi' });
+      return false;
+    }
+
+    // 2. Jika prompt meminta CGI/3D, jangan larang cgi dan 3d render
+    if (profile.requestsCgiOr3d && ['cgi', '3d render'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta render CGI / 3D' });
+      return false;
+    }
+
+    // 3. Jika prompt meminta motion blur, jangan larang blurry
+    if (profile.requestsMotionBlur && ['blurry'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta efek motion blur' });
+      return false;
+    }
+
+    // 4. Jika prompt meminta pencahayaan low-key / bayangan dalam, jangan larang muddy shadows & underexposed
+    if (profile.requestsLowKeyOrShadows && ['muddy shadows', 'underexposed'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta pencahayaan low-key / bayangan dramatis' });
+      return false;
+    }
+
+    // 5. Jika prompt meminta film grain / analog, jangan larang grainy noise
+    if (profile.requestsFilmGrain && ['grainy noise'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta tekstur film grain' });
+      return false;
+    }
+
+    // 6. Jika prompt meminta framing terpotong artistik, jangan larang awkward framing & cut off subject
+    if (profile.requestsCroppedOrFraming && ['awkward framing', 'cut off subject'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta framing close-up / artistik' });
+      return false;
+    }
+
+    // 7. Jika prompt meminta logo/tulisan dipertahankan
+    if (profile.requestsLogoOrText && ['logo', 'watermark', 'signature', 'text'].includes(t)) {
+      conflictsDetected.push({ term, reason: 'Prompt positif meminta logo / watermark dipertahankan' });
+      return false;
+    }
+
+    return true;
+  });
+
+  return { filtered, conflictsDetected };
+}
+
+/**
  * Menghasilkan Dynamic Negative Prompt
- * @param {Object} options
- * @param {string} options.prompt - Prompt positif utama
- * @param {Array} options.installedShorthands - Daftar shorthand yang terpasang
- * @param {string} options.preset - Preset pilihan (universal, photorealistic, portrait_anatomy, dll)
- * @param {Object} options.activeCategories - Status aktif tiap kategori { quality: true, anatomy: true, ... }
- * @param {Array<string>} options.customTerms - Kata tambahan dari pengguna
+ * Mendukung Mode Analisis (context-aware) dan Mode Mandiri (standalone).
  */
 export function buildDynamicNegativePrompt({
   prompt = '',
+  userPrompt = '',
   installedShorthands = [],
   preset = NEGATIVE_PRESETS.UNIVERSAL,
   activeCategories = {
@@ -120,43 +190,68 @@ export function buildDynamicNegativePrompt({
     watermarkText: true,
     compositionLighting: true
   },
-  customTerms = []
+  customTerms = [],
+  analysisStatus = 'IDLE'
 } = {}) {
-  const profile = detectPromptProfile(prompt, installedShorthands);
-  const terms = [];
+  // Resolusi input hirarkis: PROMPT OPTIMAL -> User Positive Prompt -> Standalone
+  const effectivePrompt = (prompt && typeof prompt === 'string' && prompt.trim())
+    ? prompt.trim()
+    : ((userPrompt && typeof userPrompt === 'string' && userPrompt.trim()) ? userPrompt.trim() : '');
 
-  // 1. Kualitas dasar (Quality)
+  // Tentukan mode operasi
+  let mode = 'STANDALONE';
+  let modeLabel = 'MODE MANDIRI';
+
+  if (analysisStatus === 'FAILED') {
+    mode = 'ANALYSIS_FAILED';
+    modeLabel = 'ANALISIS GAGAL — MODE MANDIRI TERSEDIA';
+  } else if (prompt && typeof prompt === 'string' && prompt.trim()) {
+    mode = 'ANALYSIS';
+    modeLabel = 'MODE ANALISIS';
+  } else if (effectivePrompt) {
+    mode = 'ANALYSIS';
+    modeLabel = 'MODE ANALISIS (LOKAL)';
+  } else {
+    mode = 'STANDALONE';
+    modeLabel = 'MODE MANDIRI';
+  }
+
+  const profile = detectPromptProfile(effectivePrompt, installedShorthands);
+  let terms = [];
+
+  // 1. Kategori Kualitas (Quality)
   if (activeCategories.quality) {
     terms.push(...DEFAULT_CATEGORY_TERMS.quality);
   }
 
-  // 2. Anatomi Manusia (Anatomy) - jika terdeteksi manusia atau preset portrait
-  if (activeCategories.anatomy && (profile.hasHumanSubject || preset === NEGATIVE_PRESETS.PORTRAIT_ANATOMY || preset === NEGATIVE_PRESETS.UNIVERSAL)) {
-    terms.push(...DEFAULT_CATEGORY_TERMS.anatomy);
-  }
-
-  // 3. Kontaminasi Gaya (Style Contamination)
-  if (activeCategories.styleContamination) {
-    if (profile.isAnimeOrArt) {
-      // Jika mode Anime, cegah efek fotorealistis yang tidak diinginkan
-      terms.push('photorealistic', 'real life photography', '3d render', 'realistic texture');
-    } else {
-      // Default (fotografi/realistis): cegah efek CGI, kartun, dan plastik
-      terms.push(...DEFAULT_CATEGORY_TERMS.styleContamination);
+  // 2. Kategori Anatomi (Anatomy)
+  if (activeCategories.anatomy) {
+    // Pada mode mandiri, istilah anatomi dimasukkan jika kategori aktif.
+    // Pada mode analisis, istilah anatomi dimasukkan jika manusia terdeteksi atau preset portrait/universal.
+    if (mode === 'STANDALONE' || profile.hasHumanSubject || preset === NEGATIVE_PRESETS.PORTRAIT_ANATOMY || preset === NEGATIVE_PRESETS.UNIVERSAL) {
+      terms.push(...DEFAULT_CATEGORY_TERMS.anatomy);
     }
   }
 
-  // 4. Teks & Watermark (Watermark & Text)
+  // 3. Kategori Kontaminasi Gaya (Style Contamination)
+  if (activeCategories.styleContamination) {
+    terms.push(...DEFAULT_CATEGORY_TERMS.styleContamination);
+    if (profile.isAnimeOrArt) {
+      terms.push('photorealistic', 'real life photography', 'realistic texture');
+    }
+  }
+
+  // 4. Kategori Watermark & Teks
   if (activeCategories.watermarkText) {
     terms.push(...DEFAULT_CATEGORY_TERMS.watermarkText);
   }
 
-  // 5. Pencahayaan & Komposisi (Composition & Lighting)
+  // 5. Kategori Pencahayaan & Komposisi
   if (activeCategories.compositionLighting) {
     terms.push(...DEFAULT_CATEGORY_TERMS.compositionLighting);
   }
 
-  // 6. Custom Terms pengguna
+  // 6. Custom Terms Pengguna
   if (Array.isArray(customTerms) && customTerms.length > 0) {
     customTerms.forEach(term => {
       const trimmed = (term || '').trim();
@@ -166,14 +261,41 @@ export function buildDynamicNegativePrompt({
     });
   }
 
-  // Deduplikasi istilah dengan menjaga urutan
-  const uniqueTerms = Array.from(new Set(terms.map(t => t.trim().toLowerCase()))).filter(Boolean);
+  // Conflict Detection & Filtering (hanya jika ada konteks prompt positif)
+  let conflictsDetected = [];
+  if (effectivePrompt) {
+    const conflictResult = filterConflicts(terms, profile);
+    terms = conflictResult.filtered;
+    conflictsDetected = conflictResult.conflictsDetected;
+  }
+
+  // Normalisasi & Deduplikasi Istilah (pertahankan urutan kemunculan pertama)
+  const seen = new Set();
+  const uniqueTerms = [];
+  for (const t of terms) {
+    if (!t) continue;
+    const clean = t.trim().toLowerCase();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      uniqueTerms.push(clean);
+    }
+  }
+
+  const emptyStateMessage = uniqueTerms.length === 0
+    ? 'Semua kategori proteksi dinonaktifkan. Aktifkan minimal satu kategori untuk membentuk negative prompt.'
+    : '';
 
   return {
     negativePrompt: uniqueTerms.join(', '),
     termCount: uniqueTerms.length,
     profile,
     activeCategories,
-    terms: uniqueTerms
+    terms: uniqueTerms,
+    mode,
+    modeLabel,
+    conflictsDetected,
+    conflictsResolved: conflictsDetected,
+    emptyStateMessage,
+    effectivePrompt
   };
 }
