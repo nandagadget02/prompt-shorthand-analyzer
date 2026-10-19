@@ -13,13 +13,37 @@ export function renderDictionaryPage({
   isSearching = false,
   searchNotice = null,
   hasSearched = false,
+  catalog = [],
+  savingCatalogCodes = [],
+  justSavedCatalogCodes = [],
+  failedCatalogCodes = [],
   onSearch,
   onAddShorthand,
   onRemoveShorthand,
   onClearAll,
-  onCopyShorthands
+  onCopyShorthands,
+  onSaveToCatalog
 }) {
-  const selectedCodesSet = new Set(selectedShorthands.map(s => (s.code || s).toLowerCase()));
+  const selectedCodesSet = new Set(selectedShorthands.map(s => ((s.code || s) || '').toLowerCase().trim()));
+  const savingSet = new Set((savingCatalogCodes || []).map(c => (c || '').toLowerCase().trim()));
+  const justSavedSet = new Set((justSavedCatalogCodes || []).map(c => (c || '').toLowerCase().trim()));
+  const failedSet = new Set((failedCatalogCodes || []).map(c => (c || '').toLowerCase().trim()));
+
+  const catalogCodesSet = new Set();
+  const catalogAliasesSet = new Set();
+  for (const c of (catalog || [])) {
+    if (c && c.code) {
+      catalogCodesSet.add(c.code.toLowerCase().trim());
+    }
+    if (c && Array.isArray(c.equivalentTo)) {
+      for (const eq of c.equivalentTo) {
+        if (typeof eq === 'string' && eq.trim()) {
+          catalogAliasesSet.add(eq.toLowerCase().trim());
+        }
+      }
+    }
+  }
+
   const hasSelected = selectedShorthands.length > 0;
 
   // Render Panel "📌 SHORTHAND TERPILIH"
@@ -71,10 +95,50 @@ export function renderDictionaryPage({
       <div class="dictionary-results-grid">
         ${searchResults
           .map(item => {
-            const isSelected = selectedCodesSet.has((item.code || '').toLowerCase());
+            const rawCode = item.code || '';
+            const normCode = rawCode.toLowerCase().trim();
+            const isSelected = selectedCodesSet.has(normCode);
             const isOnline = item.source === 'ONLINE';
             const badgeClass = isOnline ? 'badge-online' : 'badge-local';
             const badgeText = isOnline ? '🌐 ONLINE' : 'LOCAL';
+
+            const isSaving = savingSet.has(normCode);
+            const isJustSaved = justSavedSet.has(normCode);
+            const isFailed = failedSet.has(normCode);
+            const isAlreadyInCatalog = catalogCodesSet.has(normCode) || catalogAliasesSet.has(normCode);
+
+            let catalogBtnHtml = '';
+            if (isSaving) {
+              catalogBtnHtml = `
+                <button type="button" class="btn btn-sm btn-catalog-status btn-catalog-saving" disabled title="Sedang menyimpan ke User Catalog...">
+                  <span class="spinner-sm"></span> Menyimpan...
+                </button>
+              `;
+            } else if (isJustSaved) {
+              catalogBtnHtml = `
+                <button type="button" class="btn btn-sm btn-catalog-status btn-catalog-saved" disabled title="Shorthand berhasil tersimpan di User Catalog">
+                  <span class="check-icon">✓</span> Tersimpan di Catalog
+                </button>
+              `;
+            } else if (isAlreadyInCatalog) {
+              catalogBtnHtml = `
+                <button type="button" class="btn btn-sm btn-catalog-status btn-catalog-exists" disabled title="Shorthand atau alias ini sudah terdaftar di Catalog">
+                  <span class="check-icon">✓</span> Sudah Ada di Catalog
+                </button>
+              `;
+            } else if (isFailed) {
+              catalogBtnHtml = `
+                <button type="button" class="btn btn-sm btn-add-to-catalog btn-catalog-retry" data-code="${item.code}" title="Penyimpanan gagal. Klik untuk mencoba kembali.">
+                  <span class="retry-icon">⚠️</span> Gagal Menyimpan
+                </button>
+              `;
+            } else {
+              catalogBtnHtml = `
+                <button type="button" class="btn btn-sm btn-add-to-catalog" data-code="${item.code}" title="Simpan shorthand ini beserta seluruh deskripsinya langsung ke User Catalog">
+                  <span class="plus-icon">+</span> Tambah ke Catalog
+                </button>
+              `;
+            }
 
             return `
               <div class="dictionary-card ${isSelected ? 'card-selected' : ''}" data-code="${item.code}">
@@ -110,6 +174,16 @@ export function renderDictionaryPage({
                       ${item.equivalentTo.length > 4 ? `<span style="opacity: 0.6;">+${item.equivalentTo.length - 4} lainnya</span>` : ''}
                     </div>
                   ` : ''}
+                </div>
+
+                <div class="card-footer-actions">
+                  <div class="card-footer-meta">
+                    ${item.target ? `<span class="footer-meta-pill" title="Target Area">🎯 ${item.target}</span>` : ''}
+                    ${item.category ? `<span class="footer-meta-pill" title="Kategori Catalog">📁 ${item.category}</span>` : ''}
+                  </div>
+                  <div class="card-footer-btn-wrapper">
+                    ${catalogBtnHtml}
+                  </div>
                 </div>
               </div>
             `;
@@ -284,6 +358,19 @@ export function renderDictionaryPage({
           }
         });
       }
+
+      // 7. Tombol "+ Tambah ke Catalog"
+      container.querySelectorAll('.btn-add-to-catalog').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const code = btn.getAttribute('data-code');
+          const shorthandItem = searchResults.find(r => (r.code || '').toLowerCase() === (code || '').toLowerCase())
+            || searchResults.find(r => r.code === code);
+          if (shorthandItem && onSaveToCatalog) {
+            onSaveToCatalog(shorthandItem);
+          }
+        });
+      });
     }
   };
 }

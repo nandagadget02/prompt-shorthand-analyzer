@@ -8,7 +8,15 @@
 import './styles/main.css';
 import './styles/components.css';
 
-import { INITIAL_SHORTHAND_CATALOG } from './data/catalogData.js';
+import { INITIAL_SHORTHAND_CATALOG, SHORTHAND_CATEGORIES, FUNCTION_GROUPS } from './data/catalogData.js';
+import {
+  deriveShorthandName,
+  inferTargetArea,
+  inferCategory,
+  inferFunctionGroup,
+  generateSemanticTriggers,
+  findVerifiedEquivalentAliases
+} from './lib/shorthandAutoFiller.js';
 import { CatalogRepository } from './services/catalogRepository.js';
 import { StorageService } from './services/storageService.js';
 import { GeminiService, GEMINI_STATUS } from './services/geminiService.js';
@@ -60,7 +68,10 @@ class App {
       selectedShorthands: [],
       isSearching: false,
       searchNotice: null,
-      hasSearched: false
+      hasSearched: false,
+      savingCatalogCodes: [],
+      justSavedCatalogCodes: [],
+      failedCatalogCodes: []
     };
 
     // 2 Dunia Config State (V3.5 / V3.6)
@@ -968,6 +979,103 @@ class App {
     }
   }
 
+  /**
+   * Menyimpan Shorthand dari Hasil Pencarian Kamus langsung ke User Catalog (IndexedDB)
+   * Dilengkapi deduplikasi, normalisasi, dan inferensi metadata lengkap.
+   */
+  async handleSaveDictionaryToCatalog(item) {
+    if (!item || !item.code) {
+      this.showToast('Data shorthand tidak valid untuk disimpan.', 'error');
+      return;
+    }
+
+    let rawCode = (item.code || '').trim();
+    if (!rawCode.startsWith('/')) rawCode = '/' + rawCode;
+    const cleanCode = rawCode.replace(/\s+/g, '').toLowerCase();
+
+    // 1. Pengecekan Duplikasi: Kode Eksak
+    const existingExact = this.catalog.find(c => c && c.code && c.code.toLowerCase() === cleanCode);
+    if (existingExact) {
+      this.showToast(`Shorthand ${cleanCode} sudah ada di Catalog (${existingExact.source || 'CORE'}).`, 'info');
+      return;
+    }
+
+    // 2. Pengecekan Duplikasi: Terdaftar sebagai Alias
+    const existingAlias = this.catalog.find(c =>
+      Array.isArray(c.equivalentTo) && c.equivalentTo.some(eq => typeof eq === 'string' && eq.toLowerCase() === cleanCode)
+    );
+    if (existingAlias) {
+      this.showToast(`Kode ${cleanCode} sudah terdaftar sebagai alias dari ${existingAlias.code} di Catalog.`, 'info');
+      return;
+    }
+
+    // Ubah status tombol menjadi "Menyimpan..."
+    if (!this.dictionaryState.savingCatalogCodes) this.dictionaryState.savingCatalogCodes = [];
+    this.dictionaryState.savingCatalogCodes = [...this.dictionaryState.savingCatalogCodes, cleanCode];
+    this.render();
+
+    try {
+      const desc = item.description || 'Instruksi visual shorthand untuk AI image generation.';
+      const name = (item.name && item.name !== item.code)
+        ? item.name
+        : deriveShorthandName(cleanCode, desc);
+      const target = item.target || inferTargetArea(`${name} ${desc}`) || 'Umum';
+      let cat = item.category;
+      if (!cat || !SHORTHAND_CATEGORIES[cat]) {
+        cat = inferCategory(`${name} ${desc}`, target) || 'LOCK_PRESERVATION';
+      }
+      const fg = item.functionGroup || inferFunctionGroup(`${name} ${desc}`, cat, target) || (FUNCTION_GROUPS[cat] ? cat : 'GENERAL_PRESERVATION');
+      const triggers = (Array.isArray(item.semanticTriggers) && item.semanticTriggers.length > 0)
+        ? item.semanticTriggers
+        : generateSemanticTriggers(cleanCode, desc, target);
+      const aliases = (Array.isArray(item.equivalentTo) && item.equivalentTo.length > 0)
+        ? item.equivalentTo
+        : findVerifiedEquivalentAliases(cleanCode, fg, target, this.catalog);
+
+      const entry = {
+        code: cleanCode,
+        name,
+        description: desc,
+        category: cat,
+        target,
+        functionGroup: fg,
+        equivalentTo: aliases,
+        semanticTriggers: triggers,
+        negativeTriggers: Array.isArray(item.negativeTriggers) ? item.negativeTriggers : [],
+        conflicts: Array.isArray(item.conflicts) ? item.conflicts : [],
+        compatibleWith: Array.isArray(item.compatibleWith) ? item.compatibleWith : [],
+        relationships: Array.isArray(item.relationships) ? item.relationships : [],
+        recommendationLevel: item.recommendationLevel || (cat === 'LOCK_PRESERVATION' ? 'WAJIB' : 'DISARANKAN'),
+        priority: item.priority || (cat === 'LOCK_PRESERVATION' ? 'HIGH' : 'MEDIUM'),
+        status: 'CUSTOM',
+        source: 'USER',
+        preferredRepresentative: false,
+        updatedAt: new Date().toISOString()
+      };
+
+      await this.catalogRepo.add(entry);
+      this.catalog = this.catalogRepo.getAll();
+      this.geminiService.catalog = this.catalog;
+      this.geminiService.localEngine.catalog = this.catalog;
+
+      // Hapus dari savingCatalogCodes, tambahkan ke justSavedCatalogCodes
+      this.dictionaryState.savingCatalogCodes = (this.dictionaryState.savingCatalogCodes || []).filter(c => c !== cleanCode);
+      if (!this.dictionaryState.justSavedCatalogCodes) this.dictionaryState.justSavedCatalogCodes = [];
+      this.dictionaryState.justSavedCatalogCodes = [...this.dictionaryState.justSavedCatalogCodes, cleanCode];
+      this.dictionaryState.failedCatalogCodes = (this.dictionaryState.failedCatalogCodes || []).filter(c => c !== cleanCode);
+
+      this.showToast(`✅ Shorthand ${cleanCode} berhasil disimpan ke User Catalog!`, 'success');
+    } catch (err) {
+      console.error('[App] Error menyimpan shorthand ke catalog:', err);
+      this.dictionaryState.savingCatalogCodes = (this.dictionaryState.savingCatalogCodes || []).filter(c => c !== cleanCode);
+      if (!this.dictionaryState.failedCatalogCodes) this.dictionaryState.failedCatalogCodes = [];
+      this.dictionaryState.failedCatalogCodes = [...this.dictionaryState.failedCatalogCodes, cleanCode];
+      this.showToast(`Gagal menyimpan shorthand ke Catalog: ${err.message}`, 'error');
+    }
+
+    this.render();
+  }
+
   render() {
     const geminiStatusInfo = this.geminiService.getStatus();
 
@@ -1180,11 +1288,18 @@ class App {
         isSearching: this.dictionaryState.isSearching,
         searchNotice: this.dictionaryState.searchNotice,
         hasSearched: this.dictionaryState.hasSearched,
+        catalog: this.catalog,
+        savingCatalogCodes: this.dictionaryState.savingCatalogCodes,
+        justSavedCatalogCodes: this.dictionaryState.justSavedCatalogCodes,
+        failedCatalogCodes: this.dictionaryState.failedCatalogCodes,
         onSearch: (q) => this.handleDictionarySearch(q),
         onAddShorthand: (item) => this.handleDictionaryAddShorthand(item),
         onRemoveShorthand: (code) => this.handleDictionaryRemoveShorthand(code),
         onClearAll: () => this.handleDictionaryClearAll(),
-        onCopyShorthands: () => this.handleDictionaryCopy()
+        onCopyShorthands: () => this.handleDictionaryCopy(),
+        onSaveToCatalog: async (item) => {
+          await this.handleSaveDictionaryToCatalog(item);
+        }
       });
     } else if (this.activeTab === 'settings') {
       pageContent = renderSettingsPage({

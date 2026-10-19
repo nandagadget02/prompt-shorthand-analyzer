@@ -14,6 +14,7 @@ import { GeminiService } from '../src/services/geminiService.js';
 import { StorageService } from '../src/services/storageService.js';
 import { runAutoFillerTests } from './shorthandAutoFiller.test.js';
 import { runV38FeatureTests } from './negativePromptAndBatchExport.test.js';
+import { runDictionaryCatalogIntegrationTests } from './dictionaryCatalogIntegration.test.js';
 import { renderConflictBanner } from '../src/components/ConflictBanner.js';
 import { renderExcludedShorthands } from '../src/components/ExcludedShorthands.js';
 import { renderPromptInput } from '../src/components/PromptInput.js';
@@ -3420,6 +3421,8 @@ failed += autoFillerRes.failed;
 const v38Res = runV38FeatureTests();
 passed += v38Res.passed;
 failed += v38Res.failed;
+
+await runDictionaryCatalogIntegrationTests(assert);
 
 console.log('\n==================================================');
 console.log(`HASIL AKHIR: ${passed} PASSED, ${failed} FAILED`);
