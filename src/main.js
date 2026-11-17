@@ -1586,6 +1586,7 @@ class App {
 
   render() {
     const geminiStatusInfo = this.geminiService.getStatus();
+    const crowLlmStatusInfo = this.geminiService.crowLlmService ? this.geminiService.crowLlmService.getStatus() : null;
 
     // 1. Header
     const headerComponent = renderHeader(
@@ -1600,15 +1601,15 @@ class App {
         this.activeTab = 'settings';
         this.render();
         window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+      },
+      crowLlmStatusInfo
     );
 
     // 2. Main Page View
     let pageContent = null;
 
     if (this.activeTab === 'analyzer') {
-      const hasApiKey = Boolean(StorageService.getApiKey() && StorageService.getApiKey().trim());
-      const isOnlineActive = hasApiKey && this.geminiService.status !== GEMINI_STATUS.FAILED;
+      const isOnlineActive = this.geminiService.isOnlineActive();
 
       pageContent = renderAnalyzerPage({
         analysisResult: this.analysisResult,

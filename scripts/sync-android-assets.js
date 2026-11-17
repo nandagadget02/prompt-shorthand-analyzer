@@ -40,4 +40,13 @@ fs.mkdirSync(targetDir, { recursive: true });
 
 console.log(`Syncing fresh web bundle: ${sourceDir} -> ${targetDir}`);
 copyRecursiveSync(sourceDir, targetDir);
+
+// Pastikan index.html di aset Android menggunakan bundle standalone yang self-contained
+// sehingga bebas dari isu parsing module, CORS file:/// mau pun MIME type di Android WebView
+const standalonePath = path.join(targetDir, 'standalone.html');
+if (fs.existsSync(standalonePath)) {
+  fs.copyFileSync(standalonePath, path.join(targetDir, 'index.html'));
+  console.log('Synchronized standalone bundle as android assets index.html');
+}
+
 console.log('Sync complete.');

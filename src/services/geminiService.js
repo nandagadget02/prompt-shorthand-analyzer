@@ -81,6 +81,14 @@ export class GeminiService {
     };
   }
 
+  isOnlineActive() {
+    const activeProvider = StorageService.getActiveProvider();
+    if (activeProvider === 'crowllm') {
+      return Boolean(StorageService.getCrowLlmApiKey()?.trim());
+    }
+    return Boolean(StorageService.getApiKey()?.trim()) && this.status !== GEMINI_STATUS.FAILED;
+  }
+
   /**
    * Helper: Parse JSON with multi-stage fallback and markdown fence stripping
    */

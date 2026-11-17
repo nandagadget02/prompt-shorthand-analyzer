@@ -236,7 +236,7 @@ export function renderPromptInput({
             <div class="banner-content">
               <span class="status-offline-dot">⚪</span>
               <strong class="banner-title">🖥️ Pencarian Online Shorthand: TIDAK AKTIF</strong>
-              <span class="banner-desc">Berjalan dalam Mode Heuristik Lokal. Sambungkan Gemini API Key di Pengaturan untuk mengaktifkan pencarian online AI terbuka tanpa batas.</span>
+              <span class="banner-desc">Berjalan dalam Mode Heuristik Lokal. Sambungkan Gemini atau CrowLLM API Key di Pengaturan untuk mengaktifkan pencarian online AI terbuka tanpa batas.</span>
             </div>
           `}
         </div>

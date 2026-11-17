@@ -104,13 +104,14 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         webView.setBackgroundColor(Color.parseColor("#0B0F19"))
+        webView.clearCache(true)
 
         val settings = webView.settings
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_NO_CACHE
             allowFileAccess = true
             allowContentAccess = true
             @Suppress("DEPRECATION")

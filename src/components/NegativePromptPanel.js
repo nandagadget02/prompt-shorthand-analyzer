@@ -73,7 +73,7 @@ export function renderNegativePromptPanel({
         <div class="card-title" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
           <svg class="icon" viewBox="0 0 24 24" style="color: #f87171;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
           <h2 style="color: #fca5a5; font-size: 1rem; letter-spacing: 0.5px; margin: 0;">DYNAMIC NEGATIVE PROMPT BUILDER</h2>
-          <span class="badge" style="background: rgba(239, 68, 68, 0.15); border: 1px solid #f87171; color: #fca5a5; font-size: 0.7rem;">V3.8</span>
+          <span class="badge" style="background: rgba(239, 68, 68, 0.15); border: 1px solid #f87171; color: #fca5a5; font-size: 0.7rem;">V3.9</span>
           <span class="${modeBadgeClass}" id="negative-mode-badge" style="${modeBadgeStyle}">${result.modeLabel}</span>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">

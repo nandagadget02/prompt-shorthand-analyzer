@@ -67,7 +67,7 @@ export function renderPromptVariationPage({
             <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: #38bdf8;">
               <span>⭐</span> <span>IDE VARIASI PROMPT: Multi-Dimensi &amp; Instruction Lock</span>
             </div>
-            <span class="badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.7rem;">V3.8</span>
+            <span class="badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.7rem;">V3.9</span>
           </div>
           <div style="font-size: 0.735rem; color: var(--text-muted); line-height: 1.4;">
             Eksplorasi ide variasi visual dari analisis sebelumnya, gambar baru, atau prompt teks dengan perlindungan elemen semantik terkunci.
@@ -84,7 +84,7 @@ export function renderPromptVariationPage({
               <div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                   <h1 style="font-size: 1.25rem; font-weight: 800; color: #f1f5f9; margin: 0; letter-spacing: 0.5px;">IDE VARIASI PROMPT</h1>
-                  <span class="badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.7rem;">V3.8</span>
+                  <span class="badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.7rem;">V3.9</span>
                   <span class="badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #6ee7b7; font-size: 0.7rem;">Multi-Dimensi &amp; Instruction Lock</span>
                 </div>
                 <p style="font-size: 0.825rem; color: var(--text-muted); margin: 0.2rem 0 0 0;">
