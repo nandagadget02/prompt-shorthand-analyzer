@@ -19,6 +19,7 @@ import { runPromptAnalysisRatioTests } from './promptAnalysisRatio.test.js';
 import { runPromptOptimizerTests } from './promptOptimizer.test.js';
 import { runColorGradingStyleAnalyzerTests } from './colorGradingStyleAnalyzer.test.js';
 import { runDictionaryCatalogIntegrationTests } from './dictionaryCatalogIntegration.test.js';
+import { runCrowLlmProviderTests } from './crowLlmProvider.test.js';
 import { renderConflictBanner } from '../src/components/ConflictBanner.js';
 import { renderExcludedShorthands } from '../src/components/ExcludedShorthands.js';
 import { renderPromptInput } from '../src/components/PromptInput.js';
@@ -3468,6 +3469,10 @@ passed += styleAnalyzerRes.passed;
 failed += styleAnalyzerRes.failed;
 
 await runDictionaryCatalogIntegrationTests(assert);
+
+const crowLlmRes = await runCrowLlmProviderTests();
+passed += crowLlmRes.passed;
+failed += crowLlmRes.failed;
 
 console.log('\n==================================================');
 console.log(`HASIL AKHIR: ${passed} PASSED, ${failed} FAILED`);

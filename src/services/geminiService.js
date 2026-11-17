@@ -38,6 +38,7 @@ import {
   enforceInstructionLocks as enforceOptimizerLocks,
   OPTIMIZATION_MODES as OPTIMIZER_MODES
 } from '../lib/promptOptimizerEngine.js';
+import { CrowLlmService, CROWLLM_STATUS } from './crowLlmService.js';
 
 export const GEMINI_STATUS = {
   CONNECTED: 'CONNECTED',     // 🟢 Tersambung
@@ -51,6 +52,7 @@ export class GeminiService {
     this.localEngine = new SemanticEngine(catalog);
     this.status = GEMINI_STATUS.UNCONFIGURED;
     this.lastError = null;
+    this.crowLlmService = new CrowLlmService();
     this.initStatusFromStorage();
   }
 
@@ -64,13 +66,18 @@ export class GeminiService {
     if (!key) {
       this.status = GEMINI_STATUS.UNCONFIGURED;
     }
+    if (this.crowLlmService) {
+      this.crowLlmService.initStatusFromStorage();
+    }
   }
 
   getStatus() {
     return {
       status: this.status,
       error: this.lastError,
-      hasKey: Boolean(StorageService.getApiKey())
+      hasKey: Boolean(StorageService.getApiKey()),
+      activeProvider: StorageService.getActiveProvider(),
+      crowLlm: this.crowLlmService ? this.crowLlmService.getStatus() : null
     };
   }
 
@@ -121,11 +128,32 @@ export class GeminiService {
   }
 
   /**
-   * Test connection using the user's API Key with multi-model cascade
+   * Test connection using the user's API Key with multi-model cascade (Multi-Provider V3.9)
    */
-  async testConnection(apiKey, modelName) {
-    const key = (apiKey || StorageService.getApiKey()).trim();
-    const preferredModel = modelName || StorageService.getModel() || 'gemini-2.0-flash';
+  async testConnection(apiKey, modelName, options = null) {
+    let provider = 'gemini';
+    let customBaseUrl = null;
+    let actualKey = apiKey;
+    let actualModel = modelName;
+
+    if (typeof apiKey === 'object' && apiKey !== null) {
+      provider = apiKey.provider || 'gemini';
+      actualKey = apiKey.apiKey;
+      actualModel = apiKey.modelName;
+      customBaseUrl = apiKey.baseUrl;
+    } else if (typeof options === 'object' && options !== null) {
+      provider = options.provider || 'gemini';
+      customBaseUrl = options.baseUrl;
+    } else if (typeof options === 'string') {
+      provider = options;
+    }
+
+    if (provider === 'crowllm') {
+      return this.crowLlmService.testConnection(actualKey, actualModel, customBaseUrl);
+    }
+
+    const key = (actualKey || StorageService.getApiKey()).trim();
+    const preferredModel = actualModel || StorageService.getModel() || 'gemini-2.0-flash';
 
     if (!key) {
       this.status = GEMINI_STATUS.UNCONFIGURED;
@@ -233,15 +261,97 @@ export class GeminiService {
   }
 
   /**
-   * Analyze prompt: Calls Gemini API if configured & connected;
-   * otherwise transparently falls back to local SemanticEngine.
+   * Analyze prompt: Calls active AI Provider (Gemini or CrowLLM) if configured;
+   * supports automatic multi-provider fallback and transparent local SemanticEngine fallback.
    */
   async analyzePrompt(rawPrompt, installedOverrides = null) {
+    const activeProvider = StorageService.getActiveProvider();
+    const fallbackEnabled = StorageService.isFallbackEnabled();
+
+    // 1. JIKA PROVIDER AKTIF ADALAH CROWLLM
+    if (activeProvider === 'crowllm') {
+      const crowKey = StorageService.getCrowLlmApiKey().trim();
+      const crowModel = StorageService.getCrowLlmModel().trim();
+
+      if (crowKey) {
+        try {
+          const systemInstruction = this.getAnalyzePromptSystemInstruction();
+          const aiResult = await this.crowLlmService.analyzePrompt(rawPrompt, systemInstruction, crowModel);
+          if (aiResult) {
+            const finalResult = this.mergeAiWithCatalog(aiResult, rawPrompt, installedOverrides);
+            const modelLabel = crowModel || this.crowLlmService.activeModel || 'CrowLLM';
+            return {
+              ...finalResult,
+              source: 'CROWLLM_AI',
+              isOnlineActive: true,
+              engineNotice: `🌐 Pencarian Online Shorthand AKTIF (CrowLLM • ${modelLabel}) — Menganalisis seluruh isi prompt tanpa batas domain, topik, atau kategori.`
+            };
+          }
+        } catch (err) {
+          console.warn('CrowLLM API call failed, evaluating fallback:', err);
+          this.crowLlmService.lastError = err.message;
+          // Fallback ke Gemini jika diaktifkan dan key Gemini tersedia
+          const geminiKey = StorageService.getApiKey().trim();
+          if (fallbackEnabled && geminiKey) {
+            try {
+              const geminiModel = StorageService.getModel() || 'gemini-2.0-flash';
+              const geminiResult = await this.callGeminiAPI(rawPrompt, geminiKey, geminiModel);
+              if (geminiResult) {
+                const finalResult = this.mergeAiWithCatalog(geminiResult, rawPrompt, installedOverrides);
+                return {
+                  ...finalResult,
+                  source: 'GEMINI_AI',
+                  isOnlineActive: true,
+                  engineNotice: `🌐 Pencarian Online Shorthand AKTIF (Fallback ke Gemini • ${geminiModel}) — CrowLLM mengalami kendala (${err.message}).`
+                };
+              }
+            } catch (gErr) {
+              console.warn('Fallback ke Gemini juga gagal:', gErr);
+            }
+          }
+        }
+      }
+
+      // Fallback ke engine heuristik lokal
+      const localResult = this.localEngine.analyze(rawPrompt, installedOverrides);
+      const enOptimalFallback = toAiEnglishPrompt(localResult.optimalPrompt);
+      const crowErrMsg = this.crowLlmService.lastError ? ` (${this.crowLlmService.lastError})` : '';
+      return {
+        ...localResult,
+        optimalPrompt: enOptimalFallback,
+        englishBasePrompt: toAiEnglishPrompt(localResult.cleanText),
+        source: crowKey ? 'LOCAL_ENGINE_FALLBACK' : 'LOCAL_ENGINE',
+        isOnlineActive: Boolean(crowKey),
+        engineNotice: crowKey 
+          ? `🌐 Pencarian Online Shorthand AKTIF (Fallback lokal CrowLLM${crowErrMsg}). Koneksi tetap aman.`
+          : 'Pencarian Online Shorthand TIDAK AKTIF (Mode Heuristik Lokal — Hubungkan API Key CrowLLM di Pengaturan).'
+      };
+    }
+
+    // 2. JIKA PROVIDER AKTIF ADALAH GEMINI (ORIGINAL GEMINI FLOW WITH CROWLLM FALLBACK)
     const key = StorageService.getApiKey().trim();
     const model = StorageService.getModel() || 'gemini-2.0-flash';
 
-    // If no key or not connected, immediately use local engine
+    // If no key or not connected, immediately use local engine (or CrowLLM fallback)
     if (!key) {
+      const crowKey = StorageService.getCrowLlmApiKey().trim();
+      if (fallbackEnabled && crowKey) {
+        try {
+          const crowModel = StorageService.getCrowLlmModel().trim();
+          const systemInstruction = this.getAnalyzePromptSystemInstruction();
+          const aiResult = await this.crowLlmService.analyzePrompt(rawPrompt, systemInstruction, crowModel);
+          if (aiResult) {
+            const finalResult = this.mergeAiWithCatalog(aiResult, rawPrompt, installedOverrides);
+            return {
+              ...finalResult,
+              source: 'CROWLLM_AI',
+              isOnlineActive: true,
+              engineNotice: `🌐 Pencarian Online Shorthand AKTIF (CrowLLM Fallback • ${crowModel || 'Active'}) — Gemini belum terisi.`
+            };
+          }
+        } catch (_) {}
+      }
+
       const localResult = this.localEngine.analyze(rawPrompt, installedOverrides);
       const enOptimal = toAiEnglishPrompt(localResult.optimalPrompt);
       return {
@@ -274,6 +384,27 @@ export class GeminiService {
       // PENTING: JANGAN memutuskan status koneksi ke FAILED hanya karena sebuah prompt atau model error!
       // Status koneksi tetap CONNECTED karena API Key valid, hanya request individual ini yang fallback.
       this.lastError = err.message;
+
+      // Coba fallback ke CrowLLM jika diaktifkan
+      const crowKey = StorageService.getCrowLlmApiKey().trim();
+      if (fallbackEnabled && crowKey) {
+        try {
+          const crowModel = StorageService.getCrowLlmModel().trim();
+          const systemInstruction = this.getAnalyzePromptSystemInstruction();
+          const crowResult = await this.crowLlmService.analyzePrompt(rawPrompt, systemInstruction, crowModel);
+          if (crowResult) {
+            const finalResult = this.mergeAiWithCatalog(crowResult, rawPrompt, installedOverrides);
+            return {
+              ...finalResult,
+              source: 'CROWLLM_AI',
+              isOnlineActive: true,
+              engineNotice: `🌐 Pencarian Online Shorthand AKTIF (Fallback ke CrowLLM • ${crowModel || 'Active'}) — Gemini mengalami kendala (${err.message}).`
+            };
+          }
+        } catch (cErr) {
+          console.warn('Fallback ke CrowLLM juga gagal:', cErr);
+        }
+      }
     }
 
     // Fallback to local deterministic engine without disconnecting Gemini
@@ -289,48 +420,8 @@ export class GeminiService {
     };
   }
 
-  /**
-   * Call Gemini generateContent with multi-model fallback cascade
-   */
-  async callGeminiAPI(prompt, apiKey, model) {
-    const cleanModel = (model || 'gemini-2.0-flash').trim().replace(/^models\//, '');
-    const candidateModels = [
-      cleanModel,
-      'gemini-2.0-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-1.5-flash',
-      'gemini-2.5-flash',
-      'gemini-1.5-flash-8b'
-    ].filter((m, i, arr) => m && arr.indexOf(m) === i && !m.includes('1.5-pro') && !m.includes('2.5-pro') && (m === 'gemini-3.5-flash-lite' || (!m.includes('3.5') && !m.includes('3.8'))));
-
-    let lastError = null;
-
-    for (const currentModel of candidateModels) {
-      try {
-        const result = await this.executeGenerateContent(prompt, apiKey, currentModel);
-        if (result) {
-          if (currentModel !== model) {
-            StorageService.setModel(currentModel);
-          }
-          return result;
-        }
-      } catch (err) {
-        lastError = err;
-        console.warn(`Model ${currentModel} tidak dapat digunakan (${err.message}), mencoba model alternatif...`);
-        continue;
-      }
-    }
-
-    throw lastError || new Error('Semua model Gemini tidak dapat dijangkau.');
-  }
-
-  /**
-   * Private: Execute single generateContent request and parse JSON safely
-   */
-  async executeGenerateContent(prompt, apiKey, model) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-    const systemInstruction = `Anda adalah Prompt Shorthand Analyzer V3.1 dengan Fitur Pencarian Online Shorthand Terbuka & Tidak Terbatas.
+  getAnalyzePromptSystemInstruction() {
+    return `Anda adalah Prompt Shorthand Analyzer V3.1 dengan Fitur Pencarian Online Shorthand Terbuka & Tidak Terbatas.
 Tugas Anda: Menganalisis SELURUH isi INPUT PROMPT pengguna secara semantik dan menemukan/merekomendasikan notasi visual shorthand AI yang paling tepat, profesional, dan relevan.
 
 PRINSIP UTAMA: PENCARIAN SHORTHAND HARUS TERBUKA DAN TIDAK TERBATAS.
@@ -399,6 +490,49 @@ Jawab HANYA dalam format JSON valid tanpa markdown formatting:
   "optimalPrompt": "Natural, descriptive, AI-readable ENGLISH prompt optimized for generative image AI (Midjourney/SDXL/DALL-E), preserving all user intent, subjects, and visual attributes, followed by installed shorthands. Example: A young woman with long dark hair walking in a vibrant park during golden hour. /portrait /softlight",
   "visualTransformation": "Deskripsi efek visual yang terjadi pada gambar"
 }`;
+  }
+
+  /**
+   * Call Gemini generateContent with multi-model fallback cascade
+   */
+  async callGeminiAPI(prompt, apiKey, model) {
+    const cleanModel = (model || 'gemini-2.0-flash').trim().replace(/^models\//, '');
+    const candidateModels = [
+      cleanModel,
+      'gemini-2.0-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-1.5-flash',
+      'gemini-2.5-flash',
+      'gemini-1.5-flash-8b'
+    ].filter((m, i, arr) => m && arr.indexOf(m) === i && !m.includes('1.5-pro') && !m.includes('2.5-pro') && (m === 'gemini-3.5-flash-lite' || (!m.includes('3.5') && !m.includes('3.8'))));
+
+    let lastError = null;
+
+    for (const currentModel of candidateModels) {
+      try {
+        const result = await this.executeGenerateContent(prompt, apiKey, currentModel);
+        if (result) {
+          if (currentModel !== model) {
+            StorageService.setModel(currentModel);
+          }
+          return result;
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`Model ${currentModel} tidak dapat digunakan (${err.message}), mencoba model alternatif...`);
+        continue;
+      }
+    }
+
+    throw lastError || new Error('Semua model Gemini tidak dapat dijangkau.');
+  }
+
+  /**
+   * Private: Execute single generateContent request and parse JSON safely
+   */
+  async executeGenerateContent(prompt, apiKey, model) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const systemInstruction = this.getAnalyzePromptSystemInstruction();
 
     const requestBody = {
       contents: [
@@ -443,14 +577,7 @@ Jawab HANYA dalam format JSON valid tanpa markdown formatting:
    * Mengembalikan null jika offline/gagal agar sistem fallback mulus ke local rule engine.
    */
   async analyzeShorthandMetadata({ code, description }) {
-    const key = StorageService.getApiKey().trim();
-    if (!key || this.status !== GEMINI_STATUS.CONNECTED) {
-      return null;
-    }
-    const model = StorageService.getModel() || 'gemini-2.0-flash';
-    const cleanModel = model.replace(/^models\//, '');
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(key)}`;
-
+    const activeProvider = StorageService.getActiveProvider();
     const promptText = `Analisis shorthand berikut dan petakan metadata semantiknya:
 Kode: "${code}"
 Deskripsi: "${description}"
@@ -465,6 +592,23 @@ Format JSON yang wajib dikembalikan:
   "functionGroup": "Grup fungsi semantik (misal: FACE_PRESERVATION, HAIR_EDIT, BACKGROUND_REMOVAL, dll)",
   "semanticTriggers": ["kata1", "kata2", "kata3"]
 }`;
+
+    if (activeProvider === 'crowllm') {
+      const crowKey = StorageService.getCrowLlmApiKey().trim();
+      if (crowKey) {
+        try {
+          return await this.crowLlmService.analyzeShorthandMetadata({ code, description }, promptText);
+        } catch (_) {}
+      }
+    }
+
+    const key = StorageService.getApiKey().trim();
+    if (!key || this.status !== GEMINI_STATUS.CONNECTED) {
+      return null;
+    }
+    const model = StorageService.getModel() || 'gemini-2.0-flash';
+    const cleanModel = model.replace(/^models\//, '');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(key)}`;
 
     try {
       const requestBody = {
@@ -672,26 +816,6 @@ Format JSON yang wajib dikembalikan:
       return { results: [], onlineAvailable: false, message: '' };
     }
 
-    const key = StorageService.getApiKey() ? StorageService.getApiKey().trim() : '';
-    const preferredModel = StorageService.getModel() || 'gemini-2.0-flash';
-
-    if (!key) {
-      return {
-        results: [],
-        onlineAvailable: false,
-        message: 'Shorthand tidak ditemukan di katalog lokal dan pencarian online tidak tersedia (atur Gemini API Key di Pengaturan).'
-      };
-    }
-
-    const candidateModels = [
-      preferredModel,
-      'gemini-3.5-flash-lite',
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-1.5-flash',
-      'gemini-2.5-pro'
-    ].filter((m, i, arr) => m && arr.indexOf(m) === i && (m === 'gemini-3.5-flash-lite' || (!m.includes('3.5') && !m.includes('3.8'))));
-
     const systemPrompt = `Anda adalah Prompt Shorthand Dictionary Assistant profesional. Berdasarkan kata kunci pencarian user dalam domain visual APAPUN (tangan/jari, pose tubuh, fotografi, pencahayaan, sinematik, busana, anime, 3D render, efek visual, kamera, warna, latar, dsb.), rekomendasikan notasi shorthand visual AI yang paling tepat, umum, atau representatif (misal: untuk tangan natural -> /handperfect, /hands, /handanatomy, /fingerperfect; untuk pencahayaan -> /enhance, /cinematic, /volumetric-lighting; untuk portrait -> /portrait, /dof, /bokeh, dsb.).
 Aturan:
 1. Rekomendasikan 4 sampai 8 notasi shorthand yang paling relevan dengan kata kunci user.
@@ -706,6 +830,51 @@ Aturan:
     "category": "BODY_POSE"
   }
 ]`;
+
+    const activeProvider = StorageService.getActiveProvider();
+    if (activeProvider === 'crowllm') {
+      const crowKey = StorageService.getCrowLlmApiKey() ? StorageService.getCrowLlmApiKey().trim() : '';
+      if (!crowKey) {
+        return {
+          results: [],
+          onlineAvailable: false,
+          message: 'Shorthand tidak ditemukan di katalog lokal dan API Key CrowLLM belum diatur di Pengaturan.'
+        };
+      }
+      try {
+        const crowModel = StorageService.getCrowLlmModel().trim();
+        const parsed = await this.crowLlmService.searchOnlineShorthand(query.trim(), systemPrompt, crowModel);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const results = parsed.map(item => ({
+            code: item.code ? (item.code.startsWith('/') ? item.code : `/${item.code}`) : '/unknown',
+            name: item.name || item.code || 'Shorthand',
+            description: item.description || 'Notasi visual shorthand AI.',
+            category: item.category || 'BODY_POSE',
+            target: item.target || 'General AI Concept',
+            source: 'ONLINE_CROWLLM',
+            isOnline: true
+          }));
+          return {
+            results,
+            onlineAvailable: true,
+            message: `Ditemukan ${results.length} notasi shorthand online (CrowLLM).`
+          };
+        }
+      } catch (err) {
+        console.warn('Pencarian CrowLLM online gagal, mencoba fallback:', err);
+      }
+    }
+
+    const key = StorageService.getApiKey() ? StorageService.getApiKey().trim() : '';
+    const preferredModel = StorageService.getModel() || 'gemini-2.0-flash';
+
+    if (!key) {
+      return {
+        results: [],
+        onlineAvailable: false,
+        message: 'Shorthand tidak ditemukan di katalog lokal dan pencarian online tidak tersedia (atur API Key di Pengaturan).'
+      };
+    }
 
     const requestBody = {
       contents: [
@@ -792,24 +961,8 @@ Aturan:
       throw new Error('Prompt optimal kosong.');
     }
 
-    const key = StorageService.getApiKey() ? StorageService.getApiKey().trim() : '';
-    const preferredModel = StorageService.getModel() || 'gemini-2.0-flash';
-
-    if (!key) {
-      throw new Error('Gemini API Key belum terhubung. Silakan atur di menu API & Pengaturan.');
-    }
-
-    // Ekstrak seluruh shorthand yang ada di Prompt Optimal asli (misal /facelock, /hairlock, /enhance)
+    const activeProvider = StorageService.getActiveProvider();
     const originalShorthands = (optimalPrompt.match(/\/[a-zA-Z0-9_\-:]+/g) || []);
-
-    const candidateModels = [
-      preferredModel,
-      'gemini-3.5-flash-lite',
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-1.5-flash',
-      'gemini-2.5-pro'
-    ].filter((m, i, arr) => m && arr.indexOf(m) === i && (m === 'gemini-3.5-flash-lite' || (!m.includes('3.5') && !m.includes('3.8'))));
 
     const systemInstruction = `Anda adalah Prompt Shorthand Analyzer V3.3.5 - Asisten Ahli Prompt Enrichment untuk Generative Visual AI.
 Tugas Anda: Memperkaya Prompt Optimal pengguna dengan detail visual berkualitas tinggi tanpa mengubah makna atau maksud utamanya.
@@ -836,8 +989,50 @@ Format respons HANYA berupa JSON valid:
   "enrichedPrompt": "teks prompt lengkap yang telah diperkaya dalam Bahasa Inggris beserta seluruh shorthand asli di akhir"
 }`;
 
+    if (activeProvider === 'crowllm') {
+      const crowKey = StorageService.getCrowLlmApiKey() ? StorageService.getCrowLlmApiKey().trim() : '';
+      if (!crowKey) {
+        throw new Error('CrowLLM API Key belum terhubung. Silakan atur di menu API & Pengaturan.');
+      }
+      const crowModel = StorageService.getCrowLlmModel().trim();
+      const rawText = await this.crowLlmService.enrichPrompt(optimalPrompt, systemInstruction, crowModel);
+      let enrichedText = rawText;
+      try {
+        const parsed = this.extractJson(rawText);
+        if (parsed?.enrichedPrompt) enrichedText = parsed.enrichedPrompt;
+      } catch (_) {}
+
+      for (const sh of originalShorthands) {
+        if (!enrichedText.includes(sh)) {
+          enrichedText = `${enrichedText.trim()} ${sh}`;
+        }
+      }
+
+      return {
+        enrichedPrompt: enrichedText.trim(),
+        modelUsed: crowModel || 'CrowLLM',
+        originalPrompt: optimalPrompt
+      };
+    }
+
+    const key = StorageService.getApiKey() ? StorageService.getApiKey().trim() : '';
+    const preferredModel = StorageService.getModel() || 'gemini-2.0-flash';
+
+    if (!key) {
+      throw new Error('Gemini API Key belum terhubung. Silakan atur di menu API & Pengaturan.');
+    }
+
     const contextSummary = analysisContext?.intent?.summary || '';
     const userPromptPayload = `Prompt Optimal Asli:\n"${optimalPrompt.trim()}"\n${contextSummary ? `Konteks/Maksud Analisis:\n"${contextSummary}"\n` : ''}Shorthand Terpasang Wajib Dipertahankan: ${originalShorthands.length > 0 ? originalShorthands.join(' ') : '(tidak ada)'}`;
+
+    const candidateModels = [
+      preferredModel,
+      'gemini-3.5-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-2.5-flash',
+      'gemini-1.5-flash',
+      'gemini-2.5-pro'
+    ].filter((m, i, arr) => m && arr.indexOf(m) === i && (m === 'gemini-3.5-flash-lite' || (!m.includes('3.5') && !m.includes('3.8'))));
 
     const requestBody = {
       contents: [
@@ -919,6 +1114,68 @@ Format respons HANYA berupa JSON valid:
       throw new Error('Prompt optimal 2 Dunia kosong.');
     }
 
+    const activeProvider = StorageService.getActiveProvider();
+    const originalShorthands = (optimalPrompt.match(/\/[a-zA-Z0-9_\-:]+/g) || []);
+
+    if (activeProvider === 'crowllm') {
+      const crowKey = StorageService.getCrowLlmApiKey() ? StorageService.getCrowLlmApiKey().trim() : '';
+      if (!crowKey) {
+        const heuristicRes = resolveTwoWorldsConflictsHeuristic({
+          optimalPrompt,
+          generatedPrompt,
+          twoWorldsConfig,
+          analysisResult
+        });
+        return {
+          success: true,
+          enrichedPrompt: heuristicRes.enrichedPrompt,
+          conflictsResolved: heuristicRes.conflictsResolved,
+          modelUsed: 'HEURISTIC_RESOLVER'
+        };
+      }
+      try {
+        const crowModel = StorageService.getCrowLlmModel().trim();
+        const systemInstruction = buildTwoWorldsEnrichmentSystemPrompt();
+        const userPromptPayload = buildTwoWorldsEnrichmentUserPayload({
+          optimalPrompt,
+          generatedPrompt,
+          twoWorldsConfig
+        });
+        const rawText = await this.crowLlmService.enrichPrompt(userPromptPayload, systemInstruction, crowModel);
+        let enrichedText = rawText;
+        try {
+          const parsed = this.extractJson(rawText);
+          if (parsed?.enrichedPrompt) enrichedText = parsed.enrichedPrompt;
+        } catch (_) {}
+
+        for (const sh of originalShorthands) {
+          if (!enrichedText.includes(sh)) {
+            enrichedText = `${enrichedText.trim()} ${sh}`;
+          }
+        }
+        return {
+          success: true,
+          enrichedPrompt: sanitizeTwoWorldsPrompt(enrichedText),
+          conflictsResolved: ['AI_CROWLLM_ENRICHMENT'],
+          modelUsed: crowModel || 'CrowLLM'
+        };
+      } catch (err) {
+        console.warn('CrowLLM TwoWorlds enrichment failed, using heuristic fallback:', err);
+        const heuristicRes = resolveTwoWorldsConflictsHeuristic({
+          optimalPrompt,
+          generatedPrompt,
+          twoWorldsConfig,
+          analysisResult
+        });
+        return {
+          success: true,
+          enrichedPrompt: heuristicRes.enrichedPrompt,
+          conflictsResolved: heuristicRes.conflictsResolved,
+          modelUsed: 'HEURISTIC_RESOLVER'
+        };
+      }
+    }
+
     const key = StorageService.getApiKey() ? StorageService.getApiKey().trim() : '';
     const preferredModel = StorageService.getModel() || 'gemini-2.0-flash';
 
@@ -936,8 +1193,6 @@ Format respons HANYA berupa JSON valid:
         modelUsed: 'HEURISTIC_RESOLVER'
       };
     }
-
-    const originalShorthands = (optimalPrompt.match(/\/[a-zA-Z0-9_\-:]+/g) || []);
 
     const candidateModels = [
       preferredModel,

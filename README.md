@@ -1,13 +1,27 @@
-# Prompt Shorthand Analyzer V3.8
+# Prompt Shorthand Analyzer V3.9
 
-> **Aplikasi Cerdas Analisis Prompt Semantik, Rekomendasi Shorthand Visual, Multimodal Vision AI, Smart Auto-Fill Metadata, Kloning Tab "2 Dunia", dan Pemilih Rasio Aspek Gambar (Generasi V3.8).**  
-> **Basis / Source of Truth: Prompt Shorthand Analyzer V3.7 (Stable Official Baseline).**
+> **Aplikasi Cerdas Analisis Prompt Semantik, Rekomendasi Shorthand Visual, Multi-Provider AI (Google Gemini & CrowLLM OpenAI-Compatible), Smart Auto-Fill Metadata, Kloning Tab "2 Dunia", dan Pemilih Rasio Aspek Gambar (Generasi V3.9).**  
+> **Basis / Source of Truth: Prompt Shorthand Analyzer V3.8 (Stable Official Baseline).**
 
-[![Version: 3.8.0](https://img.shields.io/badge/Version-3.8.0-blue.svg)](package.json)
+[![Version: 3.9.0](https://img.shields.io/badge/Version-3.9.0-blue.svg)](package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Multi-Provider](https://img.shields.io/badge/AI%20Provider-Gemini%20%2B%20CrowLLM-emerald.svg)](#fitur-baru--multi-provider-ai-gemini--crowllm-v39)
 [![Feature: Smart Auto-Fill](https://img.shields.io/badge/Feature-Smart%20Auto--Fill-teal.svg)](#fitur-smart-auto-fill-shorthand)
-[![BYOK Gemini](https://img.shields.io/badge/Gemini%20API-BYOK%20Enabled-blueviolet.svg)](https://aistudio.google.com/)
-[![Aspect Ratio](https://img.shields.io/badge/Aspect%20Ratio-Auto%20%2B%20Target-brightgreen.svg)](#fitur-pilihan-rasio-aspek)
+[![BYOK Security](https://img.shields.io/badge/Security-BYOK%20Zero--Log-blueviolet.svg)](#keamanan-byok)
+
+---
+
+## 🦅 Fitur Baru — Multi-Provider AI: Google Gemini & CrowLLM (V3.9)
+
+Pada versi **V3.9**, telah ditambahkan dukungan multi-provider AI terpadu:
+1. **Google Gemini**: Provider resmi Google (v1beta API).
+2. **CrowLLM**: Provider OpenAI-Compatible (`https://crowllm.com/v1/chat/completions`) dengan autentikasi `Bearer API_KEY`.
+
+### Kapabilitas CrowLLM di V3.9:
+- **Konfigurasi Mandiri**: API Key (password field + show/hide), Base URL kustom, dan Model ID.
+- **Load Available Models**: Mengambil daftar model langsung dari akun CrowLLM pengguna via `GET /models`.
+- **Vision Capability Guard**: Otomatis mendeteksi model bertipe Vision vs Text-Only untuk mencegah kesalahan pengiriman gambar ke model teks-saja.
+- **Sistem Fallback Otomatis**: Jika provider utama mengalami gangguan (429, 5xx, timeout), sistem otomatis mengalihkan permintaan ke provider cadangan sebelum beralih ke Engine Lokal (Zero-Crash Guarantee).
 
 ---
 

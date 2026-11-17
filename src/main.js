@@ -1049,9 +1049,24 @@ class App {
     }
   }
 
-  async handleTestConnection(apiKey, modelName) {
+  async handleTestConnection(params, modelName) {
+    if (typeof params === 'object' && params !== null && params.provider === 'crowllm') {
+      this.showToast('Menguji koneksi ke CrowLLM API...', 'info');
+      const res = await this.geminiService.testConnection(params);
+      if (res.success) {
+        this.showToast(res.message || 'Tersambung ke CrowLLM!', 'success');
+      } else {
+        this.showToast('Gagal terhubung ke CrowLLM: ' + (res.error || res.message), 'error');
+      }
+      this.render();
+      return;
+    }
+
+    const apiKey = typeof params === 'object' ? params.apiKey : params;
+    const model = typeof params === 'object' ? params.modelName : modelName;
+
     this.showToast('Menguji koneksi ke Gemini API...', 'info');
-    const res = await this.geminiService.testConnection(apiKey, modelName);
+    const res = await this.geminiService.testConnection(apiKey, model);
     if (res.success) {
       this.showToast(res.message, 'success');
     } else {
@@ -1060,17 +1075,30 @@ class App {
     this.render();
   }
 
-  handleSaveSettings(apiKey, modelName) {
-    StorageService.setApiKey(apiKey);
+  handleSaveSettings(params, modelName) {
+    if (typeof params === 'object' && params !== null && params.activeProvider) {
+      this.showToast(`Pengaturan Multi-Provider (${params.activeProvider === 'crowllm' ? 'CrowLLM' : 'Google Gemini'}) berhasil disimpan!`, 'success');
+      this.render();
+      return;
+    }
+    StorageService.setApiKey(params);
     StorageService.setModel(modelName);
     this.showToast('Pengaturan BYOK berhasil disimpan!', 'success');
-    this.geminiService.testConnection(apiKey, modelName).then(() => this.render());
+    this.geminiService.testConnection(params, modelName).then(() => this.render());
   }
 
-  handleClearKey() {
-    StorageService.clearApiKey();
-    this.geminiService.status = GEMINI_STATUS.UNCONFIGURED;
-    this.showToast('API Key telah dihapus dari perangkat ini.');
+  handleClearKey(provider = 'gemini') {
+    if (provider === 'crowllm') {
+      StorageService.clearCrowLlmApiKey();
+      if (this.geminiService.crowLlmService) {
+        this.geminiService.crowLlmService.status = 'UNCONFIGURED';
+      }
+      this.showToast('API Key CrowLLM telah dihapus dari perangkat ini.');
+    } else {
+      StorageService.clearApiKey();
+      this.geminiService.status = GEMINI_STATUS.UNCONFIGURED;
+      this.showToast('API Key Gemini telah dihapus dari perangkat ini.');
+    }
     this.render();
   }
 
@@ -1830,11 +1858,16 @@ class App {
         }
       });
     } else if (this.activeTab === 'settings') {
+      const crowLlmStatusInfo = this.geminiService.crowLlmService ? this.geminiService.crowLlmService.getStatus() : {};
       pageContent = renderSettingsPage({
         geminiStatusInfo,
-        onTestConnection: (key, model) => this.handleTestConnection(key, model),
-        onSaveSettings: (key, model) => this.handleSaveSettings(key, model),
-        onClearKey: () => this.handleClearKey()
+        crowLlmStatusInfo,
+        onTestConnection: (params, model) => this.handleTestConnection(params, model),
+        onSaveSettings: (params, model) => this.handleSaveSettings(params, model),
+        onClearKey: (provider) => this.handleClearKey(provider),
+        onLoadCrowLlmModels: async (key, baseUrl) => {
+          return this.geminiService.crowLlmService.fetchAvailableModels(key, baseUrl);
+        }
       });
     }
 
@@ -1848,10 +1881,10 @@ class App {
         <footer class="app-footer">
           <div class="footer-container">
             <div>
-              <strong>PROMPT SHORTHAND ANALYZER V3.8</strong> &mdash; Safe Patch-Only Architecture
+              <strong>PROMPT SHORTHAND ANALYZER V3.9</strong> &mdash; Multi-Provider Safe Architecture
             </div>
             <div>
-              BYOK Gemini API &bull; Fallback Offline Heuristic &bull; Kamus Shorthand Enabled
+              BYOK Gemini &amp; CrowLLM API &bull; Fallback Offline Heuristic &bull; Kamus Shorthand Enabled
             </div>
           </div>
         </footer>
