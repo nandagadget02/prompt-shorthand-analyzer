@@ -6,54 +6,85 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const distDir = path.join(projectRoot, 'dist');
+const v39Dir = path.join(distDir, 'v3.9');
 const v38Dir = path.join(distDir, 'v3.8');
 const v37Dir = path.join(distDir, 'v3.7');
 
-if (!fs.existsSync(v38Dir)) {
-  fs.mkdirSync(v38Dir, { recursive: true });
+if (!fs.existsSync(v39Dir)) {
+  fs.mkdirSync(v39Dir, { recursive: true });
 }
 
-// 1. Copy v3.8 assets and index.html into dist/v3.8/
+// 1. Copy v3.9 assets and index.html into dist/v3.9/
 if (fs.existsSync(path.join(distDir, 'assets'))) {
-  fs.cpSync(path.join(distDir, 'assets'), path.join(v38Dir, 'assets'), { recursive: true });
+  fs.cpSync(path.join(distDir, 'assets'), path.join(v39Dir, 'assets'), { recursive: true });
 }
 if (fs.existsSync(path.join(distDir, 'index.html'))) {
-  fs.copyFileSync(path.join(distDir, 'index.html'), path.join(v38Dir, 'index.html'));
+  fs.copyFileSync(path.join(distDir, 'index.html'), path.join(v39Dir, 'index.html'));
 }
-if (fs.existsSync(path.join(distDir, 'prompt-shorthand-analyzer-v3.8-standalone.html'))) {
+if (fs.existsSync(path.join(distDir, 'prompt-shorthand-analyzer-v3.9-standalone.html'))) {
   fs.copyFileSync(
-    path.join(distDir, 'prompt-shorthand-analyzer-v3.8-standalone.html'),
-    path.join(v38Dir, 'prompt-shorthand-analyzer-v3.8-standalone.html')
+    path.join(distDir, 'prompt-shorthand-analyzer-v3.9-standalone.html'),
+    path.join(v39Dir, 'prompt-shorthand-analyzer-v3.9-standalone.html')
   );
   fs.copyFileSync(
-    path.join(distDir, 'prompt-shorthand-analyzer-v3.8-standalone.html'),
-    path.join(v38Dir, 'standalone.html')
+    path.join(distDir, 'prompt-shorthand-analyzer-v3.9-standalone.html'),
+    path.join(v39Dir, 'standalone.html')
   );
 }
 
-// Copy release APK if present in apks/
-const apk38Src = path.join(projectRoot, 'apks', 'Prompt-Shorthand-Analyzer-v3.8-release.apk');
-if (fs.existsSync(apk38Src)) {
-  fs.copyFileSync(apk38Src, path.join(distDir, 'Prompt-Shorthand-Analyzer-v3.8-release.apk'));
-  fs.copyFileSync(apk38Src, path.join(v38Dir, 'Prompt-Shorthand-Analyzer-v3.8-release.apk'));
+// 2. Preserve v3.8 folder if available from baseline
+const v38SourceCandidates = [
+  path.resolve(projectRoot, '../25. prompt-shorthand-analyzer-3.8/dist/v3.8'),
+  path.resolve(projectRoot, '../12. Nanda Gadget 2 (nandagadget02@gmail.com)/( nandagadget2 ) prompt-shorthand-analyzer-v3.8/dist/v3.8')
+];
+
+for (const candidate of v38SourceCandidates) {
+  if (fs.existsSync(candidate) && !fs.existsSync(v38Dir)) {
+    fs.cpSync(candidate, v38Dir, { recursive: true });
+    break;
+  }
 }
 
-// 2. Preserve v3.7 folder if available
-const v37Src = path.resolve(projectRoot, '../( nandagadget2 ) prompt-shorthand-analyzer-v3.7/dist/v3.7');
-if (fs.existsSync(v37Src) && !fs.existsSync(v37Dir)) {
-  fs.cpSync(v37Src, v37Dir, { recursive: true });
+// Copy v3.8 standalone HTML into dist/ if not present
+const v38HtmlCandidates = [
+  path.resolve(projectRoot, '../25. prompt-shorthand-analyzer-3.8/prompt-shorthand-analyzer-v3.8-standalone.html'),
+  path.resolve(projectRoot, '../12. Nanda Gadget 2 (nandagadget02@gmail.com)/( nandagadget2 ) prompt-shorthand-analyzer-v3.8/prompt-shorthand-analyzer-v3.8-standalone.html')
+];
+for (const cand of v38HtmlCandidates) {
+  if (fs.existsSync(cand) && !fs.existsSync(path.join(distDir, 'prompt-shorthand-analyzer-v3.8-standalone.html'))) {
+    fs.copyFileSync(cand, path.join(distDir, 'prompt-shorthand-analyzer-v3.8-standalone.html'));
+    break;
+  }
 }
 
-// 3. Ensure .nojekyll in all folders so GitHub Pages doesn't ignore anything
+// 3. Preserve v3.7 folder if available
+const v37SourceCandidates = [
+  path.resolve(projectRoot, '../( nandagadget2 ) prompt-shorthand-analyzer-v3.7/dist/v3.7'),
+  path.resolve(projectRoot, '../12. Nanda Gadget 2 (nandagadget02@gmail.com)/( nandagadget2 ) prompt-shorthand-analyzer-v3.8/dist/v3.7')
+];
+for (const candidate of v37SourceCandidates) {
+  if (fs.existsSync(candidate) && !fs.existsSync(v37Dir)) {
+    fs.cpSync(candidate, v37Dir, { recursive: true });
+    break;
+  }
+}
+
+// 4. Ensure .nojekyll in all folders so GitHub Pages doesn't ignore anything
 fs.writeFileSync(path.join(distDir, '.nojekyll'), '');
-fs.writeFileSync(path.join(v38Dir, '.nojekyll'), '');
+fs.writeFileSync(path.join(v39Dir, '.nojekyll'), '');
+if (fs.existsSync(v38Dir)) {
+  fs.writeFileSync(path.join(v38Dir, '.nojekyll'), '');
+}
 if (fs.existsSync(v37Dir)) {
   fs.writeFileSync(path.join(v37Dir, '.nojekyll'), '');
 }
 
 console.log('Multi-version dist structure prepared successfully:');
-console.log(' - / (root) has latest V3.8');
-console.log(' - /v3.8/ exists with assets and index.html');
+console.log(' - / (root) has latest V3.9');
+console.log(' - /v3.9/ exists with assets and index.html');
+if (fs.existsSync(v38Dir)) {
+  console.log(' - /v3.8/ exists with assets and index.html');
+}
 if (fs.existsSync(v37Dir)) {
   console.log(' - /v3.7/ exists with assets and index.html');
 }
